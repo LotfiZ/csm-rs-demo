@@ -114,6 +114,37 @@ export interface CompareResponse {
   b: CompareSide;
 }
 
+export interface BenchmarkRequest {
+  generation: GenerationConfig;
+  reference_mode: string;
+  matcher_a: MatcherConfig;
+  matcher_b: MatcherConfig;
+  warmup: number;
+  samples: number;
+}
+
+export interface BenchmarkStats {
+  samples: number;
+  warmup: number;
+  prepare_ms: number;
+  match_ms: number[];
+  mean_ms: number;
+  median_ms: number;
+  min_ms: number;
+  max_ms: number;
+}
+
+export interface BenchmarkResponse {
+  scenario: string;
+  reference_mode: string;
+  step: number;
+  warmup: number;
+  samples: number;
+  shared: SharedScans;
+  a: BenchmarkStats;
+  b: BenchmarkStats;
+}
+
 export interface TraceCorrespondence {
   sensor_ray: number;
   reference_j1: number;
@@ -227,6 +258,18 @@ export async function compareFrame(request: CompareRequest): Promise<CompareResp
   });
   if (!response.ok) {
     throw new Error((await response.text()) || `compare failed (${response.status})`);
+  }
+  return response.json();
+}
+
+export async function benchmarkFrame(request: BenchmarkRequest): Promise<BenchmarkResponse> {
+  const response = await fetch('/api/benchmark', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  if (!response.ok) {
+    throw new Error((await response.text()) || `benchmark failed (${response.status})`);
   }
   return response.json();
 }

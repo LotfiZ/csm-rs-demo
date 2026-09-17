@@ -151,6 +151,33 @@ impl Default for CompareRequest {
     }
 }
 
+/// Repeated, uninstrumented A/B timing on one shared generated problem.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BenchmarkRequest {
+    pub generation: GenerationConfig,
+    pub reference_mode: String,
+    pub matcher_a: MatcherConfig,
+    pub matcher_b: MatcherConfig,
+    /// Untimed matches before measurement.
+    pub warmup: usize,
+    /// Timed matches per side.
+    pub samples: usize,
+}
+
+impl Default for BenchmarkRequest {
+    fn default() -> Self {
+        Self {
+            generation: GenerationConfig::default(),
+            reference_mode: "fixed".to_owned(),
+            matcher_a: MatcherConfig::default(),
+            matcher_b: MatcherConfig::default(),
+            warmup: 5,
+            samples: 30,
+        }
+    }
+}
+
 /// Every public matcher setting of the pinned csm-rs revision.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]

@@ -1,5 +1,6 @@
 <script lang="ts">
   import BottomPanel from './components/BottomPanel.svelte';
+  import BenchmarkPanel from './components/BenchmarkPanel.svelte';
   import DiagnosticsPanel from './components/DiagnosticsPanel.svelte';
   import LeftPanel from './components/LeftPanel.svelte';
   import MatcherPanel from './components/MatcherPanel.svelte';
@@ -64,6 +65,7 @@
 
   <div class="bottom-area">
     {#if $sequenceMode}<SequenceBar />{/if}
+    {#if $abMode}<BenchmarkPanel />{/if}
     {#if $activeFrame?.trace && $activeFrame.trace.length > 0}<DiagnosticsPanel />{/if}
     <BottomPanel />
   </div>

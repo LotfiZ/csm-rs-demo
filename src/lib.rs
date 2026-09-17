@@ -8,12 +8,15 @@ mod scene;
 mod simulation;
 
 use axum::{routing::post, Json, Router};
-use csm_rs::Pose;
+use csm_rs::{Matcher, Pose, PreparedMatcher, PreparedPolarScan};
 use serde::{Deserialize, Serialize};
+use std::time::Instant;
 use tower_http::services::ServeDir;
 
 use axum::http::StatusCode;
-use config::{CompareRequest, GenerationConfig, PreviewRequest, RunRequest};
+use config::{
+    BenchmarkRequest, CompareRequest, GenerationConfig, MatcherConfig, PreviewRequest, RunRequest,
+};
 use engine::{match_pair, prepare_frame, project_points, PairReport, TraceIteration};
 pub use import::ImportResponse;
 use import::{export_session, replay_session, run_import, ScanPair};
@@ -32,6 +35,7 @@ pub fn app() -> Router {
         .route("/api/frame", post(frame))
         .route("/api/preview", post(preview))
         .route("/api/compare", post(compare))
+        .route("/api/benchmark", post(benchmark))
         .route("/api/import", post(import))
         .route("/api/replay", post(replay))
         .route("/api/export", post(export))
@@ -452,6 +456,147 @@ async fn compare(
     Json(request): Json<CompareRequest>,
 ) -> Result<Json<CompareResponse>, (StatusCode, String)> {
     run_compare(&request)
+        .map(Json)
+        .map_err(|error| (StatusCode::BAD_REQUEST, error))
+}
+
+/// Uninstrumented timing samples for one side of a benchmark.
+#[derive(Serialize, Deserialize)]
+pub struct BenchmarkStats {
+    pub samples: usize,
+    pub warmup: usize,
+    /// Matcher and workspace preparation, separate from matching.
+    pub prepare_ms: f64,
+    /// Every timed uninstrumented match, in milliseconds.
+    pub match_ms: Vec<f64>,
+    pub mean_ms: f64,
+    pub median_ms: f64,
+    pub min_ms: f64,
+    pub max_ms: f64,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct BenchmarkResponse {
+    pub scenario: String,
+    pub reference_mode: String,
+    pub step: u64,
+    pub warmup: usize,
+    pub samples: usize,
+    pub shared: SharedScans,
+    pub a: BenchmarkStats,
+    pub b: BenchmarkStats,
+}
+
+fn benchmark_side(
+    reference: &PreparedPolarScan,
+    sensor: &PreparedPolarScan,
+    guess: Pose,
+    config: &MatcherConfig,
+    warmup: usize,
+    samples: usize,
+) -> Result<BenchmarkStats, String> {
+    let prepare_start = Instant::now();
+    let matcher = Matcher::new(config.to_params()?).map_err(|error| error.to_string())?;
+    let mut workspace = PreparedMatcher::new(matcher, reference.clone(), sensor.clone())
+        .map_err(|error| error.to_string())?;
+    let prepare_ms = prepare_start.elapsed().as_secs_f64() * 1e3;
+
+    for _ in 0..warmup {
+        workspace
+            .match_once_from(guess)
+            .map_err(|error| error.to_string())?;
+    }
+
+    let mut match_ms = Vec::with_capacity(samples);
+    for _ in 0..samples {
+        let start = Instant::now();
+        workspace
+            .match_once_from(guess)
+            .map_err(|error| error.to_string())?;
+        match_ms.push(start.elapsed().as_secs_f64() * 1e3);
+    }
+
+    let mut sorted = match_ms.clone();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let mean_ms = if sorted.is_empty() {
+        0.0
+    } else {
+        sorted.iter().sum::<f64>() / sorted.len() as f64
+    };
+    let median_ms = match sorted.len() {
+        0 => 0.0,
+        len if len % 2 == 1 => sorted[len / 2],
+        len => (sorted[len / 2 - 1] + sorted[len / 2]) / 2.0,
+    };
+    Ok(BenchmarkStats {
+        samples: sorted.len(),
+        warmup,
+        prepare_ms,
+        min_ms: sorted.first().copied().unwrap_or(0.0),
+        max_ms: sorted.last().copied().unwrap_or(0.0),
+        mean_ms,
+        median_ms,
+        match_ms,
+    })
+}
+
+/// Warm up, then measure uninstrumented matches on one shared problem. No
+/// machine-independent speed claim is made or implied.
+pub fn run_benchmark(request: &BenchmarkRequest) -> Result<BenchmarkResponse, String> {
+    let gen = &request.generation;
+    gen.validate()?;
+    let scene = Scene::by_name(&gen.scenario);
+    let (reference, sensor, truth, guess) = if request.reference_mode == "previous_frame" {
+        step_scans(&scene, gen, gen.step.max(1))
+    } else {
+        fixed_scans(&scene, gen)
+    };
+    let reference_prepared = prepare_frame(&reference)?;
+    let sensor_prepared = prepare_frame(&sensor)?;
+    let samples = request.samples.clamp(1, 5000);
+    let warmup = request.warmup.min(samples);
+
+    let a = benchmark_side(
+        &reference_prepared,
+        &sensor_prepared,
+        guess,
+        &request.matcher_a,
+        warmup,
+        samples,
+    )?;
+    let b = benchmark_side(
+        &reference_prepared,
+        &sensor_prepared,
+        guess,
+        &request.matcher_b,
+        warmup,
+        samples,
+    )?;
+
+    Ok(BenchmarkResponse {
+        scenario: scene.name.to_owned(),
+        reference_mode: request.reference_mode.clone(),
+        step: gen.step,
+        warmup,
+        samples,
+        shared: SharedScans {
+            truth_pose: truth.to_array(),
+            initial_pose: guess.to_array(),
+            reference: world_points(&reference, Pose::IDENTITY),
+            sensor_unaligned: world_points(&sensor, guess),
+            sensor_true: world_points(&sensor, truth),
+            extent: scene.extent,
+            segments: scene.segments.iter().map(|s| [s.a, s.b]).collect(),
+        },
+        a,
+        b,
+    })
+}
+
+async fn benchmark(
+    Json(request): Json<BenchmarkRequest>,
+) -> Result<Json<BenchmarkResponse>, (StatusCode, String)> {
+    run_benchmark(&request)
         .map(Json)
         .map_err(|error| (StatusCode::BAD_REQUEST, error))
 }

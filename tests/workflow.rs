@@ -484,6 +484,39 @@ async fn uncertainty_is_only_reported_when_requested_and_computed() {
         .all(|value| value.is_finite() && *value >= 0.0));
 }
 
+#[tokio::test]
+async fn benchmark_reports_samples_and_separates_preparation() {
+    let body = json!({
+        "generation": { "step": 4 },
+        "reference_mode": "fixed",
+        "matcher_a": {},
+        "matcher_b": { "metric": "point_to_point" },
+        "warmup": 2,
+        "samples": 4
+    });
+    let (status, text) = post_raw("/api/benchmark", body).await;
+    assert_eq!(status, 200, "{text}");
+    let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(value["samples"], 4);
+    assert_eq!(value["warmup"], 2);
+
+    for side in ["a", "b"] {
+        assert_eq!(value[side]["samples"], 4);
+        assert!(value[side]["prepare_ms"].as_f64().unwrap() >= 0.0);
+        let times = value[side]["match_ms"].as_array().unwrap();
+        assert_eq!(times.len(), 4);
+        for time in times {
+            let millis = time.as_f64().unwrap();
+            assert!(millis.is_finite() && millis >= 0.0);
+        }
+        assert!(value[side]["median_ms"].as_f64().unwrap() >= 0.0);
+        // Measurement is uninstrumented: no trace is ever returned.
+        assert!(value[side].get("trace").is_none());
+    }
+    // Both sides measured the same generated problem.
+    assert!(value["shared"]["reference"].as_array().unwrap().len() > 100);
+}
+
 async fn post_raw(path: &str, body: serde_json::Value) -> (u16, String) {
     let request = axum::http::Request::builder()
         .method("POST")

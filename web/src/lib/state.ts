@@ -1,9 +1,11 @@
 import { derived, get, writable } from 'svelte/store';
 import {
   DEFAULT_MATCHER,
+  benchmarkFrame,
   compareFrame,
   previewFrame,
   runFrame,
+  type BenchmarkResponse,
   type CompareResponse,
   type FrameResponse,
   type GenerationConfig,
@@ -41,6 +43,8 @@ export const issues = derived([matcher, matcherB, abMode], ([$a, $b, $ab]) => {
 
 export const result = writable<FrameResponse | null>(null);
 export const compare = writable<CompareResponse | null>(null);
+export const benchmark = writable<BenchmarkResponse | null>(null);
+export const benchmarking = writable(false);
 export const preview = writable<PreviewResponse | null>(null);
 export const running = writable(false);
 export const error = writable<string | null>(null);
@@ -246,6 +250,34 @@ export async function run() {
     if (id === get(requestId)) error.set(cause instanceof Error ? cause.message : String(cause));
   } finally {
     if (id === get(requestId)) running.set(false);
+  }
+}
+
+// --- Repeated A/B benchmark ----------------------------------------------
+
+/** Warm up and measure both sides on the current shared problem. */
+export async function runBenchmark() {
+  if (get(issues).length > 0) {
+    error.set('Fix the invalid matcher settings before benchmarking.');
+    return;
+  }
+  benchmarking.set(true);
+  error.set(null);
+  try {
+    benchmark.set(
+      await benchmarkFrame({
+        generation: get(generation),
+        reference_mode: get(referenceMode),
+        matcher_a: get(matcher),
+        matcher_b: get(matcherB),
+        warmup: 5,
+        samples: 30,
+      }),
+    );
+  } catch (cause) {
+    error.set(cause instanceof Error ? cause.message : String(cause));
+  } finally {
+    benchmarking.set(false);
   }
 }
 
