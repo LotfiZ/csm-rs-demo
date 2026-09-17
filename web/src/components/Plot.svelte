@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { activeFrame, layers, placed, placeScan, placing, resetPlacement, setPlacing, theme, traceIteration, view } from '../lib/state';
+  import { activeFrame, compare, layers, placed, placeScan, placing, resetPlacement, result, sequence, setPlacing, theme, traceIteration, view } from '../lib/state';
+  import { tweenPose } from '../lib/tween';
 
   let wrap: HTMLDivElement;
   let canvas: HTMLCanvasElement;
@@ -19,6 +20,21 @@
   let scanDragging = false;
   let rotating = false;
   let dragPose = $state<[number, number, number] | null>(null);
+
+  // Match animation: 0 is the raw pose, 1 the solved pose.
+  const ANIM_MS = 350;
+  let animT = $state(1);
+  let animHandle: number | undefined;
+  let animKey = '';
+  let fitKey = '';
+
+  function reducedMotion(): boolean {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }
+
+  function poseOf(requestId: number | undefined): string {
+    return requestId === undefined ? '' : String(requestId);
+  }
 
   const extent = $derived($view?.extent ?? 7);
 
@@ -277,9 +293,29 @@
     }
     if (visible.reference) cloud(data.reference, color('--ref'), 0.9);
     if (visible.aligned && data.sensor_aligned && !dragPose)
-      cloud(data.sensor_aligned, color('--aligned'), 0.95);
+      cloud(
+        animT < 1 && data.estimated_pose && data.initial_pose
+          ? transformCloud(
+              data.sensor_aligned,
+              data.estimated_pose,
+              tweenPose(data.initial_pose, data.estimated_pose, animT),
+            )
+          : data.sensor_aligned,
+        color('--aligned'),
+        0.95,
+      );
     if (visible.alignedB && data.sensor_aligned_b && !dragPose)
-      cloud(data.sensor_aligned_b, color('--aligned-b'), 0.95);
+      cloud(
+        animT < 1 && data.estimated_pose_b && data.initial_pose
+          ? transformCloud(
+              data.sensor_aligned_b,
+              data.estimated_pose_b,
+              tweenPose(data.initial_pose, data.estimated_pose_b, animT),
+            )
+          : data.sensor_aligned_b,
+        color('--aligned-b'),
+        0.95,
+      );
 
     if (visible.truth && data.truth_pose) drawArrow(ctx, data.truth_pose, color('--truth'));
     if (visible.unaligned && (dragPose ?? data.initial_pose))
@@ -351,7 +387,39 @@
     void zoom;
     void panX;
     void panY;
+    void animT;
+    void dragPose;
     draw();
+  });
+
+  $effect(() => {
+    // One animation per new result or sequence frame, keyed by identity so
+    // panning and zooming never restart it.
+    const key = `${poseOf($result?.request_id)}:${poseOf($compare?.request_id)}:${poseOf($activeFrame?.request_id)}`;
+    if (!key || key === animKey) return;
+    animKey = key;
+    if (reducedMotion()) {
+      animT = 1;
+      return;
+    }
+    animT = 0;
+    cancelAnimationFrame(animHandle ?? 0);
+    const start = performance.now();
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / ANIM_MS);
+      animT = t;
+      if (t < 1) animHandle = requestAnimationFrame(tick);
+    };
+    animHandle = requestAnimationFrame(tick);
+  });
+
+  $effect(() => {
+    // Fit once per new run or sequence, never on scrub or preview refresh.
+    const seqLen = $sequence?.frames.length ?? 0;
+    const key = `${poseOf($result?.request_id)}:${poseOf($compare?.request_id)}:${seqLen}`;
+    if (!key || key === fitKey || cssW <= 0) return;
+    fitKey = key;
+    resetView();
   });
 </script>
 
