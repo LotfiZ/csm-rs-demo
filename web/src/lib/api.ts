@@ -287,82 +287,48 @@ export const DEFAULT_MATCHER: MatcherConfig = {
   debug_verify_tricks: false,
 };
 
-export async function runFrame(request: RunRequest): Promise<FrameResponse> {
-  const response = await fetch('/api/frame', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(request),
-  });
+async function request<T>(path: string, init: RequestInit): Promise<T> {
+  const response = await fetch(path, init);
   if (!response.ok) {
     throw new Error((await response.text()) || `request failed (${response.status})`);
   }
   return response.json();
 }
 
-export async function previewFrame(request: PreviewRequest): Promise<PreviewResponse> {
-  const response = await fetch('/api/preview', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(request),
-  });
-  if (!response.ok) {
-    throw new Error((await response.text()) || `preview failed (${response.status})`);
-  }
-  return response.json();
-}
-
-export async function compareFrame(request: CompareRequest): Promise<CompareResponse> {
-  const response = await fetch('/api/compare', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(request),
-  });
-  if (!response.ok) {
-    throw new Error((await response.text()) || `compare failed (${response.status})`);
-  }
-  return response.json();
-}
-
-export async function benchmarkFrame(request: BenchmarkRequest): Promise<BenchmarkResponse> {
-  const response = await fetch('/api/benchmark', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(request),
-  });
-  if (!response.ok) {
-    throw new Error((await response.text()) || `benchmark failed (${response.status})`);
-  }
-  return response.json();
-}
-
-export async function importScanPair(pair: unknown): Promise<ImportResponse> {
-  const response = await fetch('/api/import', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(pair),
-  });
-  if (!response.ok) {
-    throw new Error((await response.text()) || `import failed (${response.status})`);
-  }
-  return response.json();
-}
-
-async function post<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(path, {
+function post<T>(path: string, body: unknown): Promise<T> {
+  return request<T>(path, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!response.ok) {
-    throw new Error((await response.text()) || `request failed (${response.status})`);
-  }
-  return response.json();
 }
 
-export async function listExperiments(): Promise<ExperimentList> {
-  const response = await fetch('/api/experiments');
-  if (!response.ok) throw new Error(`list experiments failed (${response.status})`);
-  return response.json();
+function get<T>(path: string): Promise<T> {
+  return request<T>(path, { method: 'GET' });
+}
+
+export function runFrame(request: RunRequest): Promise<FrameResponse> {
+  return post('/api/frame', request);
+}
+
+export function previewFrame(request: PreviewRequest): Promise<PreviewResponse> {
+  return post('/api/preview', request);
+}
+
+export function compareFrame(request: CompareRequest): Promise<CompareResponse> {
+  return post('/api/compare', request);
+}
+
+export function benchmarkFrame(request: BenchmarkRequest): Promise<BenchmarkResponse> {
+  return post('/api/benchmark', request);
+}
+
+export function importScanPair(pair: unknown): Promise<ImportResponse> {
+  return post('/api/import', pair);
+}
+
+export function listExperiments(): Promise<ExperimentList> {
+  return get('/api/experiments');
 }
 
 export function saveExperiment(
@@ -373,12 +339,8 @@ export function saveExperiment(
   return post('/api/experiments', { name, run, matcher_b });
 }
 
-export async function loadExperiment(name: string): Promise<ImportOutcome> {
-  const response = await fetch(`/api/experiments/${encodeURIComponent(name)}`);
-  if (!response.ok) {
-    throw new Error((await response.text()) || `load experiment failed (${response.status})`);
-  }
-  return response.json();
+export function loadExperiment(name: string): Promise<ImportOutcome> {
+  return get(`/api/experiments/${encodeURIComponent(name)}`);
 }
 
 export function importExperiment(document: ExperimentDocument): Promise<ImportOutcome> {
