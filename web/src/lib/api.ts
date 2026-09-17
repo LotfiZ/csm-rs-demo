@@ -7,6 +7,9 @@ export interface GenerationConfig {
   noise: number;
   dropout: number;
   initial_error: number;
+  ray_count: number;
+  half_span: number;
+  overlap: number;
   step: number;
 }
 
@@ -47,6 +50,22 @@ export interface RunRequest {
   reference_mode: string;
   trace: boolean;
   request_id: number;
+}
+
+export interface PreviewRequest {
+  generation: GenerationConfig;
+  reference_mode: string;
+}
+
+/** A generation preview: scans and poses, with no matcher result. */
+export interface PreviewResponse {
+  reference: [number, number][];
+  sensor_unaligned: [number, number][];
+  sensor_true: [number, number][];
+  truth_pose: [number, number, number];
+  initial_pose: [number, number, number];
+  extent: number;
+  segments: [[number, number], [number, number]][];
 }
 
 export interface TraceCorrespondence {
@@ -136,6 +155,18 @@ export async function runFrame(request: RunRequest): Promise<FrameResponse> {
   });
   if (!response.ok) {
     throw new Error((await response.text()) || `request failed (${response.status})`);
+  }
+  return response.json();
+}
+
+export async function previewFrame(request: PreviewRequest): Promise<PreviewResponse> {
+  const response = await fetch('/api/preview', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  if (!response.ok) {
+    throw new Error((await response.text()) || `preview failed (${response.status})`);
   }
   return response.json();
 }

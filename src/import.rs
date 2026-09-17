@@ -31,7 +31,8 @@ use crate::config::{MatcherConfig, RunRequest};
 use crate::engine::{match_pair, prepare_frame, scan_points};
 use crate::scene::Scene;
 use crate::simulation::{
-    guess_rng, initial_guess, pose_at, relative_pose, scan_for, SessionRecord, SessionResult,
+    guess_rng, initial_guess, pose_at, relative_pose, scan_for, sensor_pose, SessionRecord,
+    SessionResult,
 };
 
 /// One scan in an imported pair.
@@ -217,12 +218,13 @@ fn bounding_extent(
 /// Generate the simulated frame for `request` and package a versioned session.
 pub fn export_session(request: &RunRequest) -> Result<SessionRecord, String> {
     let gen = &request.generation;
+    gen.validate()?;
     let scene = Scene::by_name(&gen.scenario);
     let reference_pose = pose_at(&gen.scenario, 0, gen.motion);
-    let sensor_pose = pose_at(&gen.scenario, gen.step, gen.motion);
+    let sensor_pose_world = sensor_pose(gen, reference_pose, gen.step);
     let reference = scan_for(&scene, reference_pose, gen, 0);
-    let sensor = scan_for(&scene, sensor_pose, gen, gen.step);
-    let truth = relative_pose(reference_pose, sensor_pose);
+    let sensor = scan_for(&scene, sensor_pose_world, gen, gen.step);
+    let truth = relative_pose(reference_pose, sensor_pose_world);
     let mut rng = guess_rng(gen.seed, gen.step);
     let guess = initial_guess(truth, gen.initial_error, &mut rng);
 

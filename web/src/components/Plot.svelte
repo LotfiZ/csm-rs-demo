@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { layers, result, theme } from '../lib/state';
+  import { layers, theme, view } from '../lib/state';
 
   let wrap: HTMLDivElement;
   let canvas: HTMLCanvasElement;
@@ -15,7 +15,7 @@
   let lastX = 0;
   let lastY = 0;
 
-  const extent = $derived($result?.extent ?? 7);
+  const extent = $derived($view?.extent ?? 7);
 
   function fitScale(): number {
     const scale = Math.min(cssW, cssH) / (2 * extent * 1.15);
@@ -106,7 +106,7 @@
     ctx.fillStyle = color('--plot');
     ctx.fillRect(0, 0, cssW, cssH);
 
-    const data = $result;
+    const data = $view;
     if (!data) {
       ctx.fillStyle = color('--muted');
       ctx.font = `13px ${color('--font-mono') || 'monospace'}`;
@@ -115,9 +115,9 @@
       return;
     }
 
-    const view = $layers;
+    const visible = $layers;
 
-    if (view.walls) {
+    if (visible.walls) {
       ctx.strokeStyle = color('--line-strong');
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -147,14 +147,14 @@
       ctx.globalAlpha = 1;
     };
 
-    if (view.truth) cloud(data.sensor_true, color('--truth'), 0.9);
-    if (view.unaligned) cloud(data.sensor_unaligned, color('--raw'), 0.75);
-    if (view.reference) cloud(data.reference, color('--ref'), 0.9);
-    if (view.aligned) cloud(data.sensor_aligned, color('--aligned'), 0.95);
+    if (visible.truth) cloud(data.sensor_true, color('--truth'), 0.9);
+    if (visible.unaligned) cloud(data.sensor_unaligned, color('--raw'), 0.75);
+    if (visible.reference) cloud(data.reference, color('--ref'), 0.9);
+    if (visible.aligned && data.sensor_aligned) cloud(data.sensor_aligned, color('--aligned'), 0.95);
 
-    if (view.truth) drawArrow(ctx, data.truth_pose, color('--truth'));
-    if (view.unaligned) drawArrow(ctx, data.initial_pose, color('--raw'));
-    if (view.aligned) drawArrow(ctx, data.estimated_pose, color('--aligned'));
+    if (visible.truth) drawArrow(ctx, data.truth_pose, color('--truth'));
+    if (visible.unaligned) drawArrow(ctx, data.initial_pose, color('--raw'));
+    if (visible.aligned && data.estimated_pose) drawArrow(ctx, data.estimated_pose, color('--aligned'));
   }
 
   onMount(() => {
@@ -169,7 +169,7 @@
 
   $effect(() => {
     // Track every input that changes the picture.
-    void $result;
+    void $view;
     void $layers;
     void $theme;
     void cssW;

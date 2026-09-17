@@ -22,6 +22,13 @@ pub struct GenerationConfig {
     pub dropout: f64,
     /// Magnitude of the initial-pose estimate error.
     pub initial_error: f64,
+    /// Rays per scan. Higher resolution costs more per match.
+    pub ray_count: usize,
+    /// Half the angular span of the sensor, in radians.
+    pub half_span: f64,
+    /// Extra sensor separation along its path, in metres. More separation
+    /// means less shared geometry; the achievable overlap is measured, not set.
+    pub overlap: f64,
     /// Simulation step index (0 is the reference pose in fixed mode).
     pub step: u64,
 }
@@ -35,8 +42,42 @@ impl Default for GenerationConfig {
             noise: 0.01,
             dropout: 0.0,
             initial_error: 0.05,
+            ray_count: 181,
+            half_span: 2.2,
+            overlap: 0.0,
             step: 0,
         }
+    }
+}
+
+impl GenerationConfig {
+    /// Validate generation controls before generating any scan.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.ray_count < 3 {
+            return Err("sensor resolution needs at least 3 rays".to_owned());
+        }
+        if !self.half_span.is_finite() || self.half_span <= 0.0 {
+            return Err("field of view must be positive".to_owned());
+        }
+        if self.half_span > std::f64::consts::PI {
+            return Err("field of view cannot exceed a full turn".to_owned());
+        }
+        if !self.motion.is_finite() || self.motion < 0.0 {
+            return Err("motion scale must be zero or more".to_owned());
+        }
+        if !self.noise.is_finite() || self.noise < 0.0 {
+            return Err("noise must be zero or more".to_owned());
+        }
+        if !self.dropout.is_finite() || !(0.0..=1.0).contains(&self.dropout) {
+            return Err("dropout must be between 0 and 1".to_owned());
+        }
+        if !self.initial_error.is_finite() || self.initial_error < 0.0 {
+            return Err("initial guess error must be zero or more".to_owned());
+        }
+        if !self.overlap.is_finite() || self.overlap < 0.0 {
+            return Err("overlap separation must be zero or more".to_owned());
+        }
+        Ok(())
     }
 }
 
@@ -62,6 +103,23 @@ impl Default for RunRequest {
             reference_mode: "fixed".to_owned(),
             trace: false,
             request_id: 0,
+        }
+    }
+}
+
+/// A request for an immediate scene preview. Generation only: no matching.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PreviewRequest {
+    pub generation: GenerationConfig,
+    pub reference_mode: String,
+}
+
+impl Default for PreviewRequest {
+    fn default() -> Self {
+        Self {
+            generation: GenerationConfig::default(),
+            reference_mode: "fixed".to_owned(),
         }
     }
 }

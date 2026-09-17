@@ -324,6 +324,63 @@ async fn newly_exposed_reading_bounds_change_results() {
     assert!(!report.valid, "clipped imported scans should not match");
 }
 
+#[tokio::test]
+async fn generation_resolution_and_field_of_view_change_inputs() {
+    let baseline = post_frame(base(4)).await;
+
+    let mut coarse = base(4);
+    coarse["generation"]["ray_count"] = json!(91);
+    let coarse = post_frame(coarse).await;
+    assert!(coarse.reference.len() < baseline.reference.len());
+    assert!(coarse.reference.len() > 10);
+
+    let mut narrow = base(4);
+    narrow["generation"]["half_span"] = json!(0.6);
+    assert_ne!(post_frame(narrow).await.reference, baseline.reference);
+}
+
+#[tokio::test]
+async fn overlap_separation_changes_shared_geometry() {
+    let near = post_frame(base(6)).await;
+    let mut far = base(6);
+    far["generation"]["overlap"] = json!(2.0);
+    let far = post_frame(far).await;
+    assert_ne!(near.truth_pose, far.truth_pose);
+    assert_ne!(near.sensor_true, far.sensor_true);
+}
+
+#[tokio::test]
+async fn preview_generates_scans_without_matching() {
+    let (status, body) = post_raw(
+        "/api/preview",
+        json!({ "generation": { "step": 4, "seed": 3 } }),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert!(value["reference"].as_array().unwrap().len() > 100);
+    // A preview carries no matcher result.
+    assert!(value.get("estimated_pose").is_none());
+    assert!(value.get("termination").is_none());
+}
+
+#[tokio::test]
+async fn invalid_generation_is_rejected_for_run_and_preview() {
+    let mut bad = base(4);
+    bad["generation"]["ray_count"] = json!(2);
+    let (run_status, run_body) = post_raw("/api/frame", bad).await;
+    assert_eq!(run_status, 400);
+    assert!(run_body.contains("at least 3"), "{run_body}");
+
+    let (preview_status, preview_body) = post_raw(
+        "/api/preview",
+        json!({ "generation": { "half_span": 0.0 } }),
+    )
+    .await;
+    assert_eq!(preview_status, 400);
+    assert!(preview_body.contains("field of view"), "{preview_body}");
+}
+
 async fn post_raw(path: &str, body: serde_json::Value) -> (u16, String) {
     let request = axum::http::Request::builder()
         .method("POST")

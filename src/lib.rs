@@ -13,13 +13,14 @@ use serde::{Deserialize, Serialize};
 use tower_http::services::ServeDir;
 
 use axum::http::StatusCode;
-use config::RunRequest;
+use config::{GenerationConfig, PreviewRequest, RunRequest};
 use engine::{match_pair, prepare_frame, PairReport, TraceIteration};
 pub use import::ImportResponse;
 use import::{export_session, replay_session, run_import, ScanPair};
 use scene::Scene;
 use simulation::{
-    guess_rng, initial_guess, pose_at, relative_pose, scan_for, ScanFrame, SessionRecord,
+    guess_rng, initial_guess, pose_at, relative_pose, scan_for, sensor_pose as sensor_pose_at,
+    ScanFrame, SessionRecord,
 };
 
 /// Build the demo router (shared by the server and the workflow tests).
@@ -29,6 +30,7 @@ use simulation::{
 pub fn app() -> Router {
     Router::new()
         .route("/api/frame", post(frame))
+        .route("/api/preview", post(preview))
         .route("/api/import", post(import))
         .route("/api/replay", post(replay))
         .route("/api/export", post(export))
@@ -118,20 +120,47 @@ struct PolicyState {
     sensor: ScanFrame,
     guess: Pose,
     estimate: Pose,
+    total_truth: Pose,
     relative_truth: Pose,
     relative_estimate: Pose,
     report: PairReport,
 }
 
+fn pair_guess(gen: &GenerationConfig, truth: Pose, step: u64) -> Pose {
+    let mut rng = guess_rng(gen.seed, step);
+    initial_guess(truth, gen.initial_error, &mut rng)
+}
+
+/// Reference/sensor scans and initial guess for a fixed-reference step.
+fn fixed_scans(scene: &Scene, gen: &GenerationConfig) -> (ScanFrame, ScanFrame, Pose, Pose) {
+    let reference_pose = pose_at(&gen.scenario, 0, gen.motion);
+    let sensor_pose_world = sensor_pose_at(gen, reference_pose, gen.step);
+    let reference = scan_for(scene, reference_pose, gen, 0);
+    let sensor = scan_for(scene, sensor_pose_world, gen, gen.step);
+    let truth = relative_pose(reference_pose, sensor_pose_world);
+    let guess = pair_guess(gen, truth, gen.step);
+    (reference, sensor, truth, guess)
+}
+
+/// Reference/sensor scans and initial guess for one previous-frame step.
+fn step_scans(
+    scene: &Scene,
+    gen: &GenerationConfig,
+    step: u64,
+) -> (ScanFrame, ScanFrame, Pose, Pose) {
+    let previous_pose = pose_at(&gen.scenario, step - 1, gen.motion);
+    let current_pose = sensor_pose_at(gen, previous_pose, step);
+    let reference = scan_for(scene, previous_pose, gen, step - 1);
+    let sensor = scan_for(scene, current_pose, gen, step);
+    let truth = relative_pose(previous_pose, current_pose);
+    let guess = pair_guess(gen, truth, step);
+    (reference, sensor, truth, guess)
+}
+
 fn fixed_policy(scene: &Scene, request: &RunRequest) -> Result<PolicyState, String> {
     let gen = &request.generation;
-    let reference_pose = pose_at(&gen.scenario, 0, gen.motion);
-    let sensor_pose = pose_at(&gen.scenario, gen.step, gen.motion);
-    let reference = scan_for(scene, reference_pose, gen, 0);
-    let sensor = scan_for(scene, sensor_pose, gen, gen.step);
-    let truth = relative_pose(reference_pose, sensor_pose);
-    let mut rng = guess_rng(gen.seed, gen.step);
-    let guess = initial_guess(truth, gen.initial_error, &mut rng);
+    gen.validate()?;
+    let (reference, sensor, truth, guess) = fixed_scans(scene, gen);
     let report = match_pair(
         prepare_frame(&reference)?,
         prepare_frame(&sensor)?,
@@ -145,6 +174,7 @@ fn fixed_policy(scene: &Scene, request: &RunRequest) -> Result<PolicyState, Stri
         sensor,
         guess,
         estimate: relative_estimate,
+        total_truth: truth,
         relative_truth: truth,
         relative_estimate,
         report,
@@ -153,17 +183,13 @@ fn fixed_policy(scene: &Scene, request: &RunRequest) -> Result<PolicyState, Stri
 
 fn previous_frame_policy(scene: &Scene, request: &RunRequest) -> Result<PolicyState, String> {
     let gen = &request.generation;
+    gen.validate()?;
     let mut accumulated = Pose::IDENTITY;
+    let mut total_truth = Pose::IDENTITY;
     let mut state = None;
     let steps = gen.step.max(1);
     for s in 1..=steps {
-        let previous_pose = pose_at(&gen.scenario, s - 1, gen.motion);
-        let current_pose = pose_at(&gen.scenario, s, gen.motion);
-        let reference = scan_for(scene, previous_pose, gen, s - 1);
-        let sensor = scan_for(scene, current_pose, gen, s);
-        let relative_truth = relative_pose(previous_pose, current_pose);
-        let mut rng = guess_rng(gen.seed, s);
-        let guess = initial_guess(relative_truth, gen.initial_error, &mut rng);
+        let (reference, sensor, relative_truth, guess) = step_scans(scene, gen, s);
         let report = match_pair(
             prepare_frame(&reference)?,
             prepare_frame(&sensor)?,
@@ -173,11 +199,13 @@ fn previous_frame_policy(scene: &Scene, request: &RunRequest) -> Result<PolicySt
         )?;
         let relative_estimate = Pose::from_array(report.estimated_pose);
         accumulated = accumulated.compose(relative_estimate);
+        total_truth = total_truth.compose(relative_truth);
         state = Some(PolicyState {
             reference,
             sensor,
             guess,
             estimate: accumulated,
+            total_truth,
             relative_truth,
             relative_estimate,
             report,
@@ -194,11 +222,7 @@ pub fn run_frame(request: &RunRequest) -> Result<FrameResponse, String> {
     } else {
         fixed_policy(&scene, request)?
     };
-    // Total truth depends only on the scenario motion.
-    let total_truth = relative_pose(
-        pose_at(&gen.scenario, 0, gen.motion),
-        pose_at(&gen.scenario, gen.step, gen.motion),
-    );
+    let total_truth = state.total_truth;
     let drift = total_truth.inverse().compose(state.estimate);
     // Ordinary runtime is the uninstrumented pair match behind the result;
     // the traced duration is only meaningful when tracing was requested.
@@ -254,10 +278,49 @@ async fn frame(
         .map_err(|error| (StatusCode::BAD_REQUEST, error))
 }
 
+/// A generation preview: the scans and poses a run would use, with no matching.
+#[derive(Serialize, Deserialize)]
+pub struct PreviewResponse {
+    pub reference: Vec<[f64; 2]>,
+    pub sensor_unaligned: Vec<[f64; 2]>,
+    pub sensor_true: Vec<[f64; 2]>,
+    pub truth_pose: [f64; 3],
+    pub initial_pose: [f64; 3],
+    pub extent: f64,
+    pub segments: Vec<[[f64; 2]; 2]>,
+}
+
+pub fn run_preview(request: &PreviewRequest) -> Result<PreviewResponse, String> {
+    let gen = &request.generation;
+    gen.validate()?;
+    let scene = Scene::by_name(&gen.scenario);
+    let (reference, sensor, truth, guess) = if request.reference_mode == "previous_frame" {
+        step_scans(&scene, gen, gen.step.max(1))
+    } else {
+        fixed_scans(&scene, gen)
+    };
+    Ok(PreviewResponse {
+        reference: world_points(&reference, Pose::IDENTITY),
+        sensor_unaligned: world_points(&sensor, guess),
+        sensor_true: world_points(&sensor, truth),
+        truth_pose: truth.to_array(),
+        initial_pose: guess.to_array(),
+        extent: scene.extent,
+        segments: scene.segments.iter().map(|s| [s.a, s.b]).collect(),
+    })
+}
+
+async fn preview(
+    Json(request): Json<PreviewRequest>,
+) -> Result<Json<PreviewResponse>, (StatusCode, String)> {
+    run_preview(&request)
+        .map(Json)
+        .map_err(|error| (StatusCode::BAD_REQUEST, error))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use config::GenerationConfig;
 
     fn request(step: u64, initial_error: f64) -> RunRequest {
         RunRequest {

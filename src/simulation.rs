@@ -6,11 +6,6 @@ use serde::{Deserialize, Serialize};
 use crate::config::{GenerationConfig, MatcherConfig};
 use crate::scene::{cast_ray, Scene};
 
-/// Number of rays per scan. Fixed so prepared workspaces stay reusable.
-pub const RAY_COUNT: usize = 181;
-/// Angular span of the sensor, in radians, centered on the sensor heading.
-pub const HALF_SPAN: f64 = 2.2;
-
 /// A generated scan in sensor coordinates plus its world pose.
 #[allow(dead_code)] // pose is used by later playback/reference-policy stages
 pub struct ScanFrame {
@@ -90,11 +85,13 @@ pub fn guess_rng(seed: u64, frame: u64) -> Rng {
 
 /// Generate one scan at the given world pose.
 pub fn scan_at(scene: &Scene, pose: Pose, config: &GenerationConfig, rng: &mut Rng) -> ScanFrame {
-    let mut angles = Vec::with_capacity(RAY_COUNT);
-    let mut readings = Vec::with_capacity(RAY_COUNT);
-    let mut valid = Vec::with_capacity(RAY_COUNT);
-    for i in 0..RAY_COUNT {
-        let local = -HALF_SPAN + 2.0 * HALF_SPAN * i as f64 / (RAY_COUNT - 1) as f64;
+    let count = config.ray_count.max(2);
+    let half_span = config.half_span;
+    let mut angles = Vec::with_capacity(count);
+    let mut readings = Vec::with_capacity(count);
+    let mut valid = Vec::with_capacity(count);
+    for i in 0..count {
+        let local = -half_span + 2.0 * half_span * i as f64 / (count - 1) as f64;
         angles.push(local);
         let world_angle = local + pose.theta;
         let direction = [world_angle.cos(), world_angle.sin()];
@@ -128,6 +125,36 @@ pub fn scan_at(scene: &Scene, pose: Pose, config: &GenerationConfig, rng: &mut R
 /// The true sensor-to-reference transform for a reference pose.
 pub fn relative_pose(reference: Pose, sensor: Pose) -> Pose {
     reference.inverse().compose(sensor)
+}
+
+/// Push `sensor` further along its travel direction from `reference`.
+///
+/// This is the overlap control: it moves the sensor through real geometry, so
+/// less of the scene is shared. The achieved overlap is measured, not assumed.
+pub fn separated_pose(reference: Pose, sensor: Pose, overlap: f64) -> Pose {
+    if overlap == 0.0 {
+        return sensor;
+    }
+    let dx = sensor.x - reference.x;
+    let dy = sensor.y - reference.y;
+    let norm = dx.hypot(dy);
+    let (ux, uy) = if norm > 1e-9 {
+        (dx / norm, dy / norm)
+    } else {
+        (sensor.theta.cos(), sensor.theta.sin())
+    };
+    Pose::new(
+        sensor.x + ux * overlap,
+        sensor.y + uy * overlap,
+        sensor.theta,
+    )
+}
+
+/// Sensor world pose for a step, separated from a reference pose by the
+/// configured overlap.
+pub fn sensor_pose(config: &GenerationConfig, reference: Pose, step: u64) -> Pose {
+    let sensor = pose_at(&config.scenario, step, config.motion);
+    separated_pose(reference, sensor, config.overlap)
 }
 
 /// A perturbed initial guess for the matcher.

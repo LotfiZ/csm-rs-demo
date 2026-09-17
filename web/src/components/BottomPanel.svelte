@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { diagnosticsOpen, result } from '../lib/state';
+  import { diagnosticsOpen, result, view } from '../lib/state';
 
   function wrap(angle: number): number {
     return ((angle + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
@@ -22,6 +22,24 @@
     if (data.accepted) return { label: 'accepted', tone: 'ok' as const };
     if (data.valid) return { label: 'valid candidate', tone: 'warn' as const };
     return { label: 'failed candidate', tone: 'bad' as const };
+  });
+
+  // Share of reference geometry the sensor also observes. Measured from the
+  // generated points, never the requested separation.
+  const observedOverlap = $derived.by(() => {
+    const data = $view;
+    if (!data || data.reference.length === 0 || data.sensor_true.length === 0) return null;
+    const tolerance = 0.15;
+    let hits = 0;
+    for (const [rx, ry] of data.reference) {
+      for (const [sx, sy] of data.sensor_true) {
+        if (Math.hypot(rx - sx, ry - sy) <= tolerance) {
+          hits += 1;
+          break;
+        }
+      }
+    }
+    return hits / data.reference.length;
   });
 </script>
 
@@ -69,6 +87,10 @@
       <div class="metric">
         <span class="k">uncertainty</span>
         <span class="v mono">{$result?.covariance_status ?? '—'}</span>
+      </div>
+      <div class="metric">
+        <span class="k">overlap (measured)</span>
+        <span class="v mono">{observedOverlap === null ? '—' : `${(observedOverlap * 100).toFixed(1)} %`}</span>
       </div>
       <div class="metric">
         <span class="k">reference</span>

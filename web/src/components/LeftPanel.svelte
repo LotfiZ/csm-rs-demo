@@ -3,6 +3,12 @@
   import { exampleId, generation, loadExample, referenceMode, trace } from '../lib/state';
 
   const selected = $derived(exampleById($exampleId));
+
+  const fovDeg = $derived(($generation.half_span * 2 * 180) / Math.PI);
+
+  function setFov(degrees: number) {
+    generation.update((g) => ({ ...g, half_span: ((degrees / 2) * Math.PI) / 180 }));
+  }
 </script>
 
 <section class="panel">
@@ -56,6 +62,24 @@
     step="0.01"
     bind:value={$generation.initial_error}
   />
+
+  <label for="rays">Sensor rays</label>
+  <input id="rays" type="number" min="3" step="1" bind:value={$generation.ray_count} />
+
+  <label for="fov">Field of view, °</label>
+  <input
+    id="fov"
+    type="number"
+    min="1"
+    max="360"
+    step="1"
+    value={fovDeg.toFixed(1)}
+    oninput={(event) => setFov(Number(event.currentTarget.value))}
+  />
+
+  <label for="overlap">Overlap separation, m <output>{$generation.overlap.toFixed(2)}</output></label>
+  <input id="overlap" type="range" min="0" max="3" step="0.05" bind:value={$generation.overlap} />
+  <p class="hint">Moves the sensor further along its path. Less shared geometry is a measured outcome, not a set percentage.</p>
 
   <h2>Run controls</h2>
   <label for="reference">Reference</label>

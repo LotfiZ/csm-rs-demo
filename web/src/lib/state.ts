@@ -1,10 +1,13 @@
 import { derived, get, writable } from 'svelte/store';
 import {
   DEFAULT_MATCHER,
+  previewFrame,
   runFrame,
   type FrameResponse,
   type GenerationConfig,
   type MatcherConfig,
+  type PreviewRequest,
+  type PreviewResponse,
   type RunRequest,
 } from './api';
 import { exampleById, EXAMPLE_LIST } from './examples';
@@ -23,6 +26,7 @@ export const trace = writable(false);
 export const issues = derived(matcher, (value) => matcherIssues(value));
 
 export const result = writable<FrameResponse | null>(null);
+export const preview = writable<PreviewResponse | null>(null);
 export const running = writable(false);
 export const error = writable<string | null>(null);
 
@@ -66,6 +70,51 @@ export const outdated = derived([generation, matcher, referenceMode, trace, resu
 });
 
 export const hasResult = derived(result, (value) => value !== null);
+
+/** What the plot draws: the live result when current, otherwise a preview. */
+export interface ViewData {
+  reference: [number, number][];
+  sensor_unaligned: [number, number][];
+  sensor_true: [number, number][];
+  sensor_aligned?: [number, number][];
+  truth_pose: [number, number, number];
+  initial_pose: [number, number, number];
+  estimated_pose?: [number, number, number];
+  extent: number;
+  segments: [[number, number], [number, number]][];
+}
+
+export const view = derived(
+  [result, preview, outdated],
+  ([$result, $preview, $outdated]): ViewData | null => {
+    if ($result && !$outdated) return $result as ViewData;
+    return ($preview as ViewData | null) ?? ($result as ViewData | null);
+  },
+);
+
+let previewTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Regenerate the scene preview without running the matcher. */
+export async function refreshPreview() {
+  try {
+    const request: PreviewRequest = {
+      generation: get(generation),
+      reference_mode: get(referenceMode),
+    };
+    preview.set(await previewFrame(request));
+  } catch {
+    // Preview failures are non-fatal; Run surfaces configuration problems.
+  }
+}
+
+function schedulePreview() {
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(refreshPreview, 120);
+}
+
+// Any change to the generated problem refreshes the preview immediately.
+generation.subscribe(schedulePreview);
+referenceMode.subscribe(schedulePreview);
 
 export function loadExample(id: string) {
   const example = exampleById(id);
