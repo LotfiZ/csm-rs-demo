@@ -96,6 +96,38 @@ export const diagnosticsOpen = writable(true);
 /** Selected iteration in the trace, for stepping and overlay. */
 export const traceIteration = writable(0);
 
+export interface Layout {
+  left: number;
+  right: number;
+  bottom: number;
+  leftCollapsed: boolean;
+  rightCollapsed: boolean;
+}
+
+export const layout = writable<Layout>({
+  left: 264,
+  right: 264,
+  bottom: 340,
+  leftCollapsed: false,
+  rightCollapsed: false,
+});
+
+export function initLayout() {
+  const stored = localStorage.getItem('csm-layout');
+  if (!stored) return;
+  try {
+    layout.update((current) => ({ ...current, ...(JSON.parse(stored) as Partial<Layout>) }));
+  } catch {
+    // Ignore malformed layout state.
+  }
+}
+
+layout.subscribe((value) => {
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem('csm-layout', JSON.stringify(value));
+  }
+});
+
 function activeKey(): string {
   return JSON.stringify([
     get(generation),

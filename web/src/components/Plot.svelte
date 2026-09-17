@@ -38,6 +38,21 @@
     zoom = 1;
   }
 
+  /** Keyboard pan and zoom, so the plot is not mouse-only. */
+  function onKey(event: KeyboardEvent) {
+    const step = 24;
+    const scale = fitScale() * zoom;
+    if (event.key === 'ArrowLeft') panX -= step / scale;
+    else if (event.key === 'ArrowRight') panX += step / scale;
+    else if (event.key === 'ArrowUp') panY -= step / scale;
+    else if (event.key === 'ArrowDown') panY += step / scale;
+    else if (event.key === '+' || event.key === '=') zoom = Math.min(40, zoom * 1.2);
+    else if (event.key === '-' || event.key === '_') zoom = Math.max(0.2, zoom / 1.2);
+    else if (event.key === '0') resetView();
+    else return;
+    event.preventDefault();
+  }
+
   function onWheel(event: WheelEvent) {
     event.preventDefault();
     const rect = canvas.getBoundingClientRect();
@@ -240,14 +255,19 @@
 </script>
 
 <div class="plot" bind:this={wrap}>
+  <!-- svelte-ignore a11y_no_interactive_element_to_noninteractive_role a11y_no_noninteractive_tabindex -->
   <canvas
     bind:this={canvas}
     style="width: {cssW}px; height: {cssH}px"
+    tabindex="0"
+    role="img"
+    aria-label="Scan plot. Use arrow keys to pan, plus and minus to zoom, and 0 to reset."
     onwheel={onWheel}
     onpointerdown={onPointerDown}
     onpointermove={onPointerMove}
     onpointerup={onPointerUp}
     ondblclick={resetView}
+    onkeydown={onKey}
   ></canvas>
 
   <fieldset class="legend" aria-label="Scan layers">
@@ -275,6 +295,11 @@
     display: block;
     touch-action: none;
     cursor: grab;
+  }
+
+  canvas:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
   }
 
   canvas:active {

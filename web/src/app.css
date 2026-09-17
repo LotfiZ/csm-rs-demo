@@ -26,6 +26,7 @@
 
   --radius: 4px;
   --gap: 10px;
+  color-scheme: dark;
 }
 
 [data-theme='light'] {
@@ -46,6 +47,7 @@
   --aligned-b: #b83f86;
   --truth: #7d3fb8;
   --danger: #c23b6b;
+  color-scheme: light;
 }
 
 * {

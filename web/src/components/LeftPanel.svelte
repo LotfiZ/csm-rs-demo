@@ -149,7 +149,6 @@
   .panel {
     padding: 12px;
     overflow-y: auto;
-    border-right: 1px solid var(--line);
   }
 
   h2 {

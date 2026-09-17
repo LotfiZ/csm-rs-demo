@@ -58,10 +58,15 @@ cd web
 npm install
 npm run build
 npm run check   # svelte-check
+npm test        # vitest: browser-level behaviour jsdom can establish
 ```
 
 For live reload, run the backend with `cargo run` and start `npm run dev`;
 Vite proxies `/api` to `127.0.0.1:7878`.
+
+The workspace is resizable (drag the handles, or focus one and use the arrow
+keys), the side panels collapse on narrow screens, and both light and dark
+themes are defined as design tokens shared by the plot, legend, and metrics.
 
 ## Development
 

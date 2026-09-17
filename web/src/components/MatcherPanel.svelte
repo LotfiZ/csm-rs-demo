@@ -156,7 +156,6 @@
   .panel {
     padding: 12px;
     overflow-y: auto;
-    border-left: 1px solid var(--line);
   }
 
   header {

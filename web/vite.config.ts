@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 
 export default defineConfig({
@@ -7,5 +7,9 @@ export default defineConfig({
   server: {
     // `npm run dev` proxies the API to the Rust server (`cargo run`).
     proxy: { '/api': 'http://127.0.0.1:7878' },
+  },
+  test: {
+    environment: 'jsdom',
+    globals: true,
   },
 });
