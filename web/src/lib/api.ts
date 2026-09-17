@@ -150,6 +150,8 @@ export interface FrameResponse {
   nvalid: number;
   error: number;
   covariance_status: string;
+  /** Variance diagonal [var_x, var_y, var_theta], when the library computed it. */
+  covariance: [number, number, number] | null;
   trace: TraceIteration[] | null;
   normal_ms: number;
   instrumented_ms: number;

@@ -69,9 +69,12 @@ export const layers = writable({
   aligned: true,
   alignedB: true,
   truth: true,
+  correspondences: true,
 });
 
 export const diagnosticsOpen = writable(true);
+/** Selected iteration in the trace, for stepping and overlay. */
+export const traceIteration = writable(0);
 
 function activeKey(): string {
   return JSON.stringify([

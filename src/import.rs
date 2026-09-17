@@ -159,6 +159,7 @@ pub struct ImportResponse {
     pub nvalid: i32,
     pub error: f64,
     pub covariance_status: String,
+    pub covariance: Option<[f64; 3]>,
     pub extent: f64,
 }
 
@@ -192,6 +193,7 @@ pub fn run_import(pair: &ScanPair) -> Result<ImportResponse, String> {
         nvalid: report.nvalid,
         error: report.error,
         covariance_status: report.covariance_status,
+        covariance: report.covariance,
         extent: bounding_extent(&reference, &sensor, guess, estimate),
     })
 }

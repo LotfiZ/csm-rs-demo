@@ -465,6 +465,25 @@ async fn rejected_sequence_update_does_not_advance_the_trajectory() {
     );
 }
 
+#[tokio::test]
+async fn uncertainty_is_only_reported_when_requested_and_computed() {
+    let plain = post_frame(base(4)).await;
+    assert_eq!(plain.covariance_status, "Disabled");
+    assert!(
+        plain.covariance.is_none(),
+        "uncertainty must not be fabricated when not requested"
+    );
+
+    let mut body = base(4);
+    body["matcher"]["do_compute_covariance"] = json!(true);
+    let with_covariance = post_frame(body).await;
+    assert_eq!(with_covariance.covariance_status, "Computed");
+    let diagonal = with_covariance.covariance.expect("covariance diagonal");
+    assert!(diagonal
+        .iter()
+        .all(|value| value.is_finite() && *value >= 0.0));
+}
+
 async fn post_raw(path: &str, body: serde_json::Value) -> (u16, String) {
     let request = axum::http::Request::builder()
         .method("POST")

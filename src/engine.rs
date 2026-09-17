@@ -48,6 +48,8 @@ pub struct PairReport {
     pub nvalid: i32,
     pub error: f64,
     pub covariance_status: String,
+    /// Variance diagonal `[var_x, var_y, var_theta]`, when computed.
+    pub covariance: Option<[f64; 3]>,
     /// Per-iteration instrumentation, present only when tracing is requested.
     pub trace: Option<Vec<TraceIteration>>,
     /// Wall-clock time for an uninstrumented prepared match, in milliseconds.
@@ -89,6 +91,10 @@ pub fn match_pair(
         (None, 0.0)
     };
 
+    let covariance = outcome
+        .covariance
+        .map(|cov| [cov.data[0][0], cov.data[1][1], cov.data[2][2]]);
+
     Ok(PairReport {
         initial_pose: guess.to_array(),
         estimated_pose: outcome.pose.to_array(),
@@ -99,6 +105,7 @@ pub fn match_pair(
         nvalid: outcome.nvalid,
         error: outcome.error,
         covariance_status: format!("{:?}", outcome.covariance_status),
+        covariance,
         trace,
         normal_ms,
         instrumented_ms,

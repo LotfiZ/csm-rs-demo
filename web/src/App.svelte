@@ -1,10 +1,11 @@
 <script lang="ts">
   import BottomPanel from './components/BottomPanel.svelte';
+  import DiagnosticsPanel from './components/DiagnosticsPanel.svelte';
   import LeftPanel from './components/LeftPanel.svelte';
   import MatcherPanel from './components/MatcherPanel.svelte';
   import Plot from './components/Plot.svelte';
   import SequenceBar from './components/SequenceBar.svelte';
-  import { error, initTheme, issues, outdated, run, running, theme, toggleTheme, abMode, setAbMode, sequenceMode, setSequenceMode, matcher, matcherB, editingSide } from './lib/state';
+  import { error, initTheme, issues, outdated, run, running, theme, toggleTheme, abMode, setAbMode, sequenceMode, setSequenceMode, matcher, matcherB, editingSide, activeFrame } from './lib/state';
   import { onMount } from 'svelte';
 
   onMount(() => {
@@ -63,6 +64,7 @@
 
   <div class="bottom-area">
     {#if $sequenceMode}<SequenceBar />{/if}
+    {#if $activeFrame?.trace && $activeFrame.trace.length > 0}<DiagnosticsPanel />{/if}
     <BottomPanel />
   </div>
 </div>

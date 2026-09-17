@@ -86,6 +86,9 @@ pub struct FrameResponse {
     pub nvalid: i32,
     pub error: f64,
     pub covariance_status: String,
+    /// Variance diagonal `[var_x, var_y, var_theta]`, present only when the
+    /// library computed it. `None` is not a zero-uncertainty claim.
+    pub covariance: Option<[f64; 3]>,
     /// Per-iteration instrumentation, present only when tracing is requested.
     pub trace: Option<Vec<TraceIteration>>,
     /// Wall-clock time for an uninstrumented prepared match, in milliseconds.
@@ -292,6 +295,7 @@ pub fn run_frame(request: &RunRequest) -> Result<FrameResponse, String> {
         nvalid: report.nvalid,
         error: report.error,
         covariance_status: report.covariance_status.clone(),
+        covariance: report.covariance,
         trace,
         normal_ms: report.normal_ms,
         instrumented_ms,

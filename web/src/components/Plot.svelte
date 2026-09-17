@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { layers, theme, view } from '../lib/state';
+  import { activeFrame, layers, theme, traceIteration, view } from '../lib/state';
 
   let wrap: HTMLDivElement;
   let canvas: HTMLCanvasElement;
@@ -188,6 +188,29 @@
       ctx.arc(sx, sy, 9, 0, Math.PI * 2);
       ctx.stroke();
     }
+
+    // Correspondences of the selected traced iteration, as real pairs.
+    const trace = $activeFrame?.trace;
+    if (visible.correspondences && trace && trace.length > 0) {
+      const iteration = trace[Math.min($traceIteration, trace.length - 1)];
+      if (iteration) {
+        ctx.strokeStyle = color('--muted');
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = 0.5;
+        ctx.beginPath();
+        for (const correspondence of iteration.correspondences) {
+          const [x1, y1] = toScreen(correspondence.sensor_point[0], correspondence.sensor_point[1]);
+          const [x2, y2] = toScreen(
+            correspondence.reference_point[0],
+            correspondence.reference_point[1],
+          );
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(x2, y2);
+        }
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    }
   }
 
   onMount(() => {
@@ -203,6 +226,8 @@
   $effect(() => {
     // Track every input that changes the picture.
     void $view;
+    void $activeFrame;
+    void $traceIteration;
     void $layers;
     void $theme;
     void cssW;
@@ -232,6 +257,7 @@
     <label><input type="checkbox" bind:checked={$layers.aligned} /> <i class="sw aligned"></i>aligned A</label>
     <label><input type="checkbox" bind:checked={$layers.alignedB} /> <i class="sw aligned-b"></i>aligned B</label>
     <label><input type="checkbox" bind:checked={$layers.truth} /> <i class="sw truth"></i>truth</label>
+    <label><input type="checkbox" bind:checked={$layers.correspondences} /> correspondences</label>
     <button class="reset" onclick={resetView}>reset view</button>
   </fieldset>
 </div>
