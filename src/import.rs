@@ -19,18 +19,19 @@
 //!   bearings, otherwise `atan2(y, x)` is derived.
 //! - `sigma` and `true_alpha` are optional per-ray arrays for the weighting
 //!   paths.
-//! - `config` is an optional matching configuration (any [`SimConfig`] field);
-//!   simulation-only fields are ignored.
+//! - `config` is an optional [`MatcherConfig`] (any matcher field);
+//!   simulation-only fields are not part of this document.
 //!
 //! Imported data has no ground truth, so responses never fabricate one.
 
-use csm_rs::{Matcher, Pose, PreparedPolarScan};
+use csm_rs::{Pose, PreparedPolarScan};
 use serde::{Deserialize, Serialize};
 
+use crate::config::{MatcherConfig, RunRequest};
+use crate::engine::{match_pair, prepare_frame, scan_points};
 use crate::scene::Scene;
 use crate::simulation::{
     guess_rng, initial_guess, pose_at, relative_pose, scan_for, SessionRecord, SessionResult,
-    SimConfig,
 };
 
 /// One scan in an imported pair.
@@ -123,7 +124,7 @@ pub struct ScanPair {
     #[serde(default)]
     pub initial_guess: Option<[f64; 3]>,
     #[serde(default)]
-    pub config: Option<SimConfig>,
+    pub config: Option<MatcherConfig>,
 }
 
 fn default_format_version() -> u32 {
@@ -160,69 +161,37 @@ pub struct ImportResponse {
     pub extent: f64,
 }
 
-fn params_from(config: &SimConfig) -> csm_rs::Params {
-    let mut params = csm_rs::Params::default();
-    params.restart.enabled = config.restart;
-    params.correspondence.search = match config.search.as_str() {
-        "naive" => csm_rs::CorrespondenceSearch::Naive,
-        _ => csm_rs::CorrespondenceSearch::Tricks,
-    };
-    params.correspondence.metric = match config.metric.as_str() {
-        "point_to_point" => csm_rs::DistanceMetric::PointToPoint,
-        _ => csm_rs::DistanceMetric::PointToLine,
-    };
-    params.correspondence.max_dist = config.max_correspondence_dist;
-    params.stopping.max_iterations = config.max_iterations;
-    params.outliers.remove_doubles = config.remove_doubles;
-    params.outliers.max_perc = config.outliers_max_perc;
-    params.do_compute_covariance = config.do_compute_covariance;
-    params
-}
-
-fn scan_points(scan: &PreparedPolarScan, transform: Pose) -> Vec<[f64; 2]> {
-    let mut points = Vec::new();
-    for i in 0..scan.len() {
-        if !scan.valid()[i] {
-            continue;
-        }
-        let local = [
-            scan.readings()[i] * scan.angles()[i].cos(),
-            scan.readings()[i] * scan.angles()[i].sin(),
-        ];
-        points.push(transform.transform_point(local));
-    }
-    points
-}
-
-/// Match an imported pair. Ground truth is never invented.
+/// Match an imported pair through the shared execution path. Ground truth is
+/// never invented.
 pub fn run_import(pair: &ScanPair) -> Result<ImportResponse, String> {
     pair.validate()?;
     let config = pair.config.clone().unwrap_or_default();
-    let mut reference = pair.reference.to_prepared()?;
-    let mut sensor = pair.sensor.to_prepared()?;
+    let reference = pair.reference.to_prepared()?;
+    let sensor = pair.sensor.to_prepared()?;
     let guess = pair
         .initial_guess
         .map(Pose::from_array)
         .unwrap_or(Pose::IDENTITY);
-    let matcher = Matcher::new(params_from(&config)).map_err(|error| error.to_string())?;
-    let outcome = matcher
-        .match_prepared_from(&mut reference, &mut sensor, guess)
-        .map_err(|error| error.to_string())?;
+
+    let reference_points = scan_points(&reference, Pose::IDENTITY);
+    let sensor_unaligned = scan_points(&sensor, guess);
+    let report = match_pair(reference.clone(), sensor.clone(), guess, &config, false)?;
+    let estimate = Pose::from_array(report.estimated_pose);
 
     Ok(ImportResponse {
-        reference: scan_points(&reference, Pose::IDENTITY),
-        sensor_unaligned: scan_points(&sensor, guess),
-        sensor_aligned: scan_points(&sensor, outcome.pose),
+        reference: reference_points,
+        sensor_unaligned,
+        sensor_aligned: scan_points(&sensor, estimate),
         initial_pose: guess.to_array(),
-        estimated_pose: outcome.pose.to_array(),
-        valid: outcome.valid,
-        accepted: outcome.accepted(),
-        termination: format!("{:?}", outcome.termination),
-        iterations: outcome.iterations,
-        nvalid: outcome.nvalid,
-        error: outcome.error,
-        covariance_status: format!("{:?}", outcome.covariance_status),
-        extent: bounding_extent(&reference, &sensor, guess, outcome.pose),
+        estimated_pose: report.estimated_pose,
+        valid: report.valid,
+        accepted: report.accepted,
+        termination: report.termination,
+        iterations: report.iterations,
+        nvalid: report.nvalid,
+        error: report.error,
+        covariance_status: report.covariance_status,
+        extent: bounding_extent(&reference, &sensor, guess, estimate),
     })
 }
 
@@ -245,52 +214,31 @@ fn bounding_extent(
     largest * 1.1
 }
 
-fn export_result(outcome: &csm_rs::MatchOutcome) -> SessionResult {
-    SessionResult {
-        estimated_pose: outcome.pose.to_array(),
-        valid: outcome.valid,
-        termination: format!("{:?}", outcome.termination),
-        iterations: outcome.iterations,
-        nvalid: outcome.nvalid,
-        error: outcome.error,
-    }
-}
-
-/// Generate the simulated frame for `config` and package a versioned session.
-pub fn export_session(config: &SimConfig) -> Result<SessionRecord, String> {
-    let scene = Scene::by_name(&config.scenario);
-    let reference_pose = pose_at(&config.scenario, 0, config.motion);
-    let sensor_pose = pose_at(&config.scenario, config.step, config.motion);
-    let reference = scan_for(&scene, reference_pose, config, 0);
-    let sensor = scan_for(&scene, sensor_pose, config, config.step);
+/// Generate the simulated frame for `request` and package a versioned session.
+pub fn export_session(request: &RunRequest) -> Result<SessionRecord, String> {
+    let gen = &request.generation;
+    let scene = Scene::by_name(&gen.scenario);
+    let reference_pose = pose_at(&gen.scenario, 0, gen.motion);
+    let sensor_pose = pose_at(&gen.scenario, gen.step, gen.motion);
+    let reference = scan_for(&scene, reference_pose, gen, 0);
+    let sensor = scan_for(&scene, sensor_pose, gen, gen.step);
     let truth = relative_pose(reference_pose, sensor_pose);
-    let mut rng = guess_rng(config.seed, config.step);
-    let guess = initial_guess(truth, config.initial_error, &mut rng);
+    let mut rng = guess_rng(gen.seed, gen.step);
+    let guess = initial_guess(truth, gen.initial_error, &mut rng);
 
-    let mut reference_prepared = PreparedPolarScan::from_polar(
-        reference.angles.clone(),
-        reference.readings.clone(),
-        reference.valid.clone(),
-    )
-    .map_err(|error| error.to_string())?;
-    let mut sensor_prepared = PreparedPolarScan::from_polar(
-        sensor.angles.clone(),
-        sensor.readings.clone(),
-        sensor.valid.clone(),
-    )
-    .map_err(|error| error.to_string())?;
-    let matcher = Matcher::new(params_from(config)).map_err(|error| error.to_string())?;
-    let outcome = matcher
-        .match_prepared_from(&mut reference_prepared, &mut sensor_prepared, guess)
-        .map_err(|error| error.to_string())?;
+    let report = match_pair(
+        prepare_frame(&reference)?,
+        prepare_frame(&sensor)?,
+        guess,
+        &request.matcher,
+        false,
+    )?;
 
     Ok(SessionRecord {
         version: 1,
-        scenario: config.scenario.clone(),
-        reference_mode: config.reference_mode.clone(),
-        seed: config.seed,
-        step: config.step,
-        config: config.clone(),
+        generation: gen.clone(),
+        reference_mode: request.reference_mode.clone(),
+        matcher: request.matcher.clone(),
         reference_angles: reference.angles,
         reference_readings: option_readings(&reference.readings),
         reference_valid: reference.valid,
@@ -298,7 +246,14 @@ pub fn export_session(config: &SimConfig) -> Result<SessionRecord, String> {
         sensor_readings: option_readings(&sensor.readings),
         sensor_valid: sensor.valid,
         initial_guess: guess.to_array(),
-        result: export_result(&outcome),
+        result: SessionResult {
+            estimated_pose: report.estimated_pose,
+            valid: report.valid,
+            termination: report.termination,
+            iterations: report.iterations,
+            nvalid: report.nvalid,
+            error: report.error,
+        },
     })
 }
 
@@ -332,7 +287,7 @@ pub fn replay_session(record: &SessionRecord) -> Result<ImportResponse, String> 
             true_alpha: None,
         },
         initial_guess: Some(record.initial_guess),
-        config: Some(record.config.clone()),
+        config: Some(record.matcher.clone()),
     };
     let response = run_import(&pair)?;
     let stored = &record.result;

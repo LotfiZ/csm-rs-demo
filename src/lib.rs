@@ -1,6 +1,8 @@
 //! Local browser demo for csm-rs: serves a single page and runs the real Rust
 //! matcher for every frame request.
 
+mod config;
+mod engine;
 mod import;
 mod scene;
 mod simulation;
@@ -9,16 +11,17 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use csm_rs::{Matcher, Params, PolarScan, Pose, PreparedMatcher, PreparedPolarScan};
+use csm_rs::Pose;
 use serde::{Deserialize, Serialize};
-use std::time::Instant;
 
 use axum::http::StatusCode;
+use config::RunRequest;
+use engine::{match_pair, prepare_frame, PairReport, TraceIteration};
 pub use import::ImportResponse;
 use import::{export_session, replay_session, run_import, ScanPair};
 use scene::Scene;
 use simulation::{
-    guess_rng, initial_guess, pose_at, relative_pose, scan_for, ScanFrame, SessionRecord, SimConfig,
+    guess_rng, initial_guess, pose_at, relative_pose, scan_for, ScanFrame, SessionRecord,
 };
 
 const INDEX_HTML: &str = include_str!("../web/index.html");
@@ -48,9 +51,9 @@ async fn replay(
 }
 
 async fn export(
-    Json(config): Json<SimConfig>,
+    Json(request): Json<RunRequest>,
 ) -> Result<Json<SessionRecord>, (StatusCode, String)> {
-    export_session(&config)
+    export_session(&request)
         .map(Json)
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))
 }
@@ -99,89 +102,6 @@ pub struct FrameResponse {
     pub segments: Vec<[[f64; 2]; 2]>,
 }
 
-/// One traced iteration sent to the browser.
-#[derive(Serialize, Deserialize)]
-pub struct TraceIteration {
-    pub iteration: usize,
-    pub pose: [f64; 3],
-    pub error: f64,
-    pub valid_correspondences: usize,
-    pub restart: bool,
-    pub correspondences: Vec<TraceCorrespondence>,
-}
-
-/// One correspondence in a traced iteration.
-#[derive(Serialize, Deserialize)]
-pub struct TraceCorrespondence {
-    pub sensor_ray: usize,
-    pub reference_j1: i32,
-    pub reference_j2: i32,
-    pub distance: f64,
-    pub sensor_point: [f64; 2],
-    pub reference_point: [f64; 2],
-}
-
-/// Run an uninstrumented and an instrumented prepared match on the same frames
-/// and return the trace plus both timings.
-fn run_trace(
-    reference: &ScanFrame,
-    sensor: &ScanFrame,
-    config: &SimConfig,
-    guess: Pose,
-) -> Result<(Option<Vec<TraceIteration>>, f64, f64), String> {
-    let prepare_start = Instant::now();
-    let reference = PreparedPolarScan::from_polar(
-        reference.angles.clone(),
-        reference.readings.clone(),
-        reference.valid.clone(),
-    )
-    .map_err(|error| error.to_string())?;
-    let sensor = PreparedPolarScan::from_polar(
-        sensor.angles.clone(),
-        sensor.readings.clone(),
-        sensor.valid.clone(),
-    )
-    .map_err(|error| error.to_string())?;
-    let matcher = Matcher::new(params_from(config)).map_err(|error| error.to_string())?;
-    let mut workspace =
-        PreparedMatcher::new(matcher, reference, sensor).map_err(|error| error.to_string())?;
-    let _prepare_ms = prepare_start.elapsed().as_secs_f64() * 1e3;
-
-    let normal_start = Instant::now();
-    workspace
-        .match_once_from(guess)
-        .map_err(|error| error.to_string())?;
-    let normal_ms = normal_start.elapsed().as_secs_f64() * 1e3;
-
-    let instrumented_start = Instant::now();
-    let mut trace = Vec::new();
-    workspace
-        .match_once_traced(|snapshot| {
-            trace.push(TraceIteration {
-                iteration: snapshot.iteration,
-                pose: snapshot.pose,
-                error: snapshot.error,
-                valid_correspondences: snapshot.valid_correspondences,
-                restart: snapshot.restart,
-                correspondences: snapshot
-                    .correspondences
-                    .into_iter()
-                    .map(|corr| TraceCorrespondence {
-                        sensor_ray: corr.sensor_ray,
-                        reference_j1: corr.reference_j1,
-                        reference_j2: corr.reference_j2,
-                        distance: corr.distance,
-                        sensor_point: corr.sensor_point,
-                        reference_point: corr.reference_point,
-                    })
-                    .collect(),
-            });
-        })
-        .map_err(|error| error.to_string())?;
-    let instrumented_ms = instrumented_start.elapsed().as_secs_f64() * 1e3;
-    Ok((Some(trace), normal_ms, instrumented_ms))
-}
-
 fn world_points(scan: &ScanFrame, transform: Pose) -> Vec<[f64; 2]> {
     let mut points = Vec::new();
     for i in 0..scan.angles.len() {
@@ -197,42 +117,6 @@ fn world_points(scan: &ScanFrame, transform: Pose) -> Vec<[f64; 2]> {
     points
 }
 
-fn params_from(config: &SimConfig) -> Params {
-    let mut params = Params::default();
-    params.restart.enabled = config.restart;
-    params.correspondence.search = match config.search.as_str() {
-        "naive" => csm_rs::CorrespondenceSearch::Naive,
-        _ => csm_rs::CorrespondenceSearch::Tricks,
-    };
-    params.correspondence.metric = match config.metric.as_str() {
-        "point_to_point" => csm_rs::DistanceMetric::PointToPoint,
-        _ => csm_rs::DistanceMetric::PointToLine,
-    };
-    params.correspondence.max_dist = config.max_correspondence_dist;
-    params.correspondence.do_alpha_test = config.do_alpha_test;
-    params.correspondence.do_visibility_test = config.do_visibility_test;
-    params.stopping.max_iterations = config.max_iterations;
-    params.outliers.remove_doubles = config.remove_doubles;
-    params.outliers.max_perc = config.outliers_max_perc;
-    params.do_compute_covariance = config.do_compute_covariance;
-    params
-}
-
-fn match_frames(
-    matcher: &Matcher,
-    reference: &ScanFrame,
-    sensor: &ScanFrame,
-    guess: Pose,
-) -> Result<csm_rs::MatchOutcome, String> {
-    let reference_scan = PolarScan::new(&reference.angles, &reference.readings, &reference.valid)
-        .map_err(|error| error.to_string())?;
-    let sensor_scan = PolarScan::new(&sensor.angles, &sensor.readings, &sensor.valid)
-        .map_err(|error| error.to_string())?;
-    matcher
-        .match_polar_from(reference_scan, sensor_scan, guess)
-        .map_err(|error| error.to_string())
-}
-
 /// State shared by both reference policies.
 struct PolicyState {
     reference: ScanFrame,
@@ -241,102 +125,118 @@ struct PolicyState {
     estimate: Pose,
     relative_truth: Pose,
     relative_estimate: Pose,
-    outcome: csm_rs::MatchOutcome,
+    report: PairReport,
 }
 
-fn fixed_policy(
-    scene: &Scene,
-    config: &SimConfig,
-    matcher: &Matcher,
-) -> Result<PolicyState, String> {
-    let reference_pose = pose_at(&config.scenario, 0, config.motion);
-    let sensor_pose = pose_at(&config.scenario, config.step, config.motion);
-    let reference = scan_for(scene, reference_pose, config, 0);
-    let sensor = scan_for(scene, sensor_pose, config, config.step);
+fn fixed_policy(scene: &Scene, request: &RunRequest) -> Result<PolicyState, String> {
+    let gen = &request.generation;
+    let reference_pose = pose_at(&gen.scenario, 0, gen.motion);
+    let sensor_pose = pose_at(&gen.scenario, gen.step, gen.motion);
+    let reference = scan_for(scene, reference_pose, gen, 0);
+    let sensor = scan_for(scene, sensor_pose, gen, gen.step);
     let truth = relative_pose(reference_pose, sensor_pose);
-    let mut rng = guess_rng(config.seed, config.step);
-    let guess = initial_guess(truth, config.initial_error, &mut rng);
-    let outcome = match_frames(matcher, &reference, &sensor, guess)?;
+    let mut rng = guess_rng(gen.seed, gen.step);
+    let guess = initial_guess(truth, gen.initial_error, &mut rng);
+    let report = match_pair(
+        prepare_frame(&reference)?,
+        prepare_frame(&sensor)?,
+        guess,
+        &request.matcher,
+        false,
+    )?;
+    let relative_estimate = Pose::from_array(report.estimated_pose);
     Ok(PolicyState {
         reference,
         sensor,
         guess,
-        estimate: outcome.pose,
+        estimate: relative_estimate,
         relative_truth: truth,
-        relative_estimate: outcome.pose,
-        outcome,
+        relative_estimate,
+        report,
     })
 }
 
-fn previous_frame_policy(
-    scene: &Scene,
-    config: &SimConfig,
-    matcher: &Matcher,
-) -> Result<PolicyState, String> {
+fn previous_frame_policy(scene: &Scene, request: &RunRequest) -> Result<PolicyState, String> {
+    let gen = &request.generation;
     let mut accumulated = Pose::IDENTITY;
     let mut state = None;
-    let steps = config.step.max(1);
+    let steps = gen.step.max(1);
     for s in 1..=steps {
-        let previous_pose = pose_at(&config.scenario, s - 1, config.motion);
-        let current_pose = pose_at(&config.scenario, s, config.motion);
-        let reference = scan_for(scene, previous_pose, config, s - 1);
-        let sensor = scan_for(scene, current_pose, config, s);
+        let previous_pose = pose_at(&gen.scenario, s - 1, gen.motion);
+        let current_pose = pose_at(&gen.scenario, s, gen.motion);
+        let reference = scan_for(scene, previous_pose, gen, s - 1);
+        let sensor = scan_for(scene, current_pose, gen, s);
         let relative_truth = relative_pose(previous_pose, current_pose);
-        let mut rng = guess_rng(config.seed, s);
-        let guess = initial_guess(relative_truth, config.initial_error, &mut rng);
-        let outcome = match_frames(matcher, &reference, &sensor, guess)?;
-        accumulated = accumulated.compose(outcome.pose);
+        let mut rng = guess_rng(gen.seed, s);
+        let guess = initial_guess(relative_truth, gen.initial_error, &mut rng);
+        let report = match_pair(
+            prepare_frame(&reference)?,
+            prepare_frame(&sensor)?,
+            guess,
+            &request.matcher,
+            false,
+        )?;
+        let relative_estimate = Pose::from_array(report.estimated_pose);
+        accumulated = accumulated.compose(relative_estimate);
         state = Some(PolicyState {
             reference,
             sensor,
             guess,
             estimate: accumulated,
             relative_truth,
-            relative_estimate: outcome.pose,
-            outcome,
+            relative_estimate,
+            report,
         });
     }
     state.ok_or_else(|| "previous-frame policy requires a step".to_owned())
 }
 
-pub fn run_frame(config: &SimConfig) -> Result<FrameResponse, String> {
-    let scene = Scene::by_name(&config.scenario);
-    let matcher = Matcher::new(params_from(config)).map_err(|error| error.to_string())?;
-    let state = if config.reference_mode == "previous_frame" {
-        previous_frame_policy(&scene, config, &matcher)?
+pub fn run_frame(request: &RunRequest) -> Result<FrameResponse, String> {
+    let gen = &request.generation;
+    let scene = Scene::by_name(&gen.scenario);
+    let state = if request.reference_mode == "previous_frame" {
+        previous_frame_policy(&scene, request)?
     } else {
-        fixed_policy(&scene, config, &matcher)?
+        fixed_policy(&scene, request)?
     };
     // Total truth depends only on the scenario motion.
     let total_truth = relative_pose(
-        pose_at(&config.scenario, 0, config.motion),
-        pose_at(&config.scenario, config.step, config.motion),
+        pose_at(&gen.scenario, 0, gen.motion),
+        pose_at(&gen.scenario, gen.step, gen.motion),
     );
     let drift = total_truth.inverse().compose(state.estimate);
-    let (trace, normal_ms, instrumented_ms) = if config.trace {
-        run_trace(&state.reference, &state.sensor, config, state.guess)?
+    let (trace, normal_ms, instrumented_ms) = if request.trace {
+        let traced = match_pair(
+            prepare_frame(&state.reference)?,
+            prepare_frame(&state.sensor)?,
+            state.guess,
+            &request.matcher,
+            true,
+        )?;
+        (traced.trace, traced.normal_ms, traced.instrumented_ms)
     } else {
         (None, 0.0, 0.0)
     };
+    let report = &state.report;
 
     Ok(FrameResponse {
-        request_id: config.request_id,
+        request_id: request.request_id,
         scenario: scene.name.to_owned(),
-        reference_mode: config.reference_mode.clone(),
-        step: config.step,
+        reference_mode: request.reference_mode.clone(),
+        step: gen.step,
         truth_pose: total_truth.to_array(),
         initial_pose: state.guess.to_array(),
         estimated_pose: state.estimate.to_array(),
         relative_truth_pose: state.relative_truth.to_array(),
         relative_estimated_pose: state.relative_estimate.to_array(),
         drift_pose: drift.to_array(),
-        valid: state.outcome.valid,
-        accepted: state.outcome.accepted(),
-        termination: format!("{:?}", state.outcome.termination),
-        iterations: state.outcome.iterations,
-        nvalid: state.outcome.nvalid,
-        error: state.outcome.error,
-        covariance_status: format!("{:?}", state.outcome.covariance_status),
+        valid: report.valid,
+        accepted: report.accepted,
+        termination: report.termination.clone(),
+        iterations: report.iterations,
+        nvalid: report.nvalid,
+        error: report.error,
+        covariance_status: report.covariance_status.clone(),
         trace,
         normal_ms,
         instrumented_ms,
@@ -349,22 +249,33 @@ pub fn run_frame(config: &SimConfig) -> Result<FrameResponse, String> {
     })
 }
 
-async fn frame(Json(config): Json<SimConfig>) -> Result<Json<FrameResponse>, String> {
-    run_frame(&config).map(Json)
+async fn frame(
+    Json(request): Json<RunRequest>,
+) -> Result<Json<FrameResponse>, (StatusCode, String)> {
+    run_frame(&request)
+        .map(Json)
+        .map_err(|error| (StatusCode::BAD_REQUEST, error))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use config::GenerationConfig;
+
+    fn request(step: u64, initial_error: f64) -> RunRequest {
+        RunRequest {
+            generation: GenerationConfig {
+                step,
+                initial_error,
+                ..GenerationConfig::default()
+            },
+            ..RunRequest::default()
+        }
+    }
 
     #[test]
     fn frame_runs_the_real_matcher_and_tracks_truth() {
-        let config = SimConfig {
-            step: 4,
-            initial_error: 0.05,
-            ..SimConfig::default()
-        };
-        let response = run_frame(&config).expect("frame runs");
+        let response = run_frame(&request(4, 0.05)).expect("frame runs");
         assert!(response.valid, "a well-separated frame should match");
         assert!(response.reference.len() > 100);
         assert!(!response.sensor_aligned.is_empty());
@@ -375,13 +286,10 @@ mod tests {
 
     #[test]
     fn frame_is_reproducible_for_a_seed() {
-        let config = SimConfig {
-            step: 5,
-            seed: 99,
-            ..SimConfig::default()
-        };
-        let first = run_frame(&config).expect("frame runs");
-        let second = run_frame(&config).expect("frame runs");
+        let mut request = request(5, 0.05);
+        request.generation.seed = 99;
+        let first = run_frame(&request).expect("frame runs");
+        let second = run_frame(&request).expect("frame runs");
         assert_eq!(first.estimated_pose, second.estimated_pose);
         assert_eq!(first.reference, second.reference);
     }

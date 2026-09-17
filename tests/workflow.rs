@@ -23,14 +23,17 @@ async fn post_frame(config: serde_json::Value) -> FrameResponse {
 
 fn base(step: u64) -> serde_json::Value {
     json!({
-        "scenario": "asymmetric_room",
+        "generation": {
+            "scenario": "asymmetric_room",
+            "seed": 7,
+            "motion": 1.0,
+            "noise": 0.01,
+            "dropout": 0.0,
+            "initial_error": 0.05,
+            "step": step
+        },
+        "matcher": {},
         "reference_mode": "fixed",
-        "seed": 7,
-        "motion": 1.0,
-        "noise": 0.01,
-        "dropout": 0.0,
-        "initial_error": 0.05,
-        "step": step,
         "request_id": step + 1
     })
 }
@@ -58,22 +61,22 @@ async fn controls_change_real_inputs() {
     let baseline = post_frame(base(4)).await;
 
     let mut moved = base(4);
-    moved["motion"] = json!(2.0);
+    moved["generation"]["motion"] = json!(2.0);
     assert_ne!(post_frame(moved).await.truth_pose, baseline.truth_pose);
 
     let mut noisy = base(4);
-    noisy["noise"] = json!(0.2);
+    noisy["generation"]["noise"] = json!(0.2);
     assert_ne!(post_frame(noisy).await.reference, baseline.reference);
 
     let mut guessed = base(4);
-    guessed["initial_error"] = json!(1.2);
+    guessed["generation"]["initial_error"] = json!(1.2);
     assert_ne!(
         post_frame(guessed).await.initial_pose,
         baseline.initial_pose
     );
 
     let mut dropped = base(4);
-    dropped["dropout"] = json!(0.6);
+    dropped["generation"]["dropout"] = json!(0.6);
     assert!(
         post_frame(dropped).await.sensor_unaligned.len() < baseline.sensor_unaligned.len(),
         "dropout should remove rays from the actual sensor input"
@@ -101,7 +104,7 @@ async fn stepping_is_reproducible_for_a_seed() {
 #[tokio::test]
 async fn different_seeds_produce_different_inputs() {
     let mut other = base(4);
-    other["seed"] = json!(1234);
+    other["generation"]["seed"] = json!(1234);
     let a = post_frame(base(4)).await;
     let b = post_frame(other).await;
     assert_ne!(a.reference, b.reference);
@@ -120,9 +123,9 @@ async fn response_echoes_request_id_for_stale_guarding() {
 #[tokio::test]
 async fn scenario_changes_geometry_and_reference() {
     let mut corridor = base(3);
-    corridor["scenario"] = json!("ambiguous_corridor");
+    corridor["generation"]["scenario"] = json!("ambiguous_corridor");
     let mut partial = base(3);
-    partial["scenario"] = json!("partial_overlap");
+    partial["generation"]["scenario"] = json!("partial_overlap");
     assert_ne!(
         post_frame(base(3)).await.reference,
         post_frame(corridor).await.reference
@@ -147,10 +150,10 @@ async fn reference_policy_switching_replaces_the_reference() {
 async fn previous_frame_mode_accumulates_drift() {
     let mut early = base(3);
     early["reference_mode"] = json!("previous_frame");
-    early["initial_error"] = json!(0.3);
+    early["generation"]["initial_error"] = json!(0.3);
     let mut late = base(12);
     late["reference_mode"] = json!("previous_frame");
-    late["initial_error"] = json!(0.3);
+    late["generation"]["initial_error"] = json!(0.3);
 
     let early = post_frame(early).await;
     let late = post_frame(late).await;
@@ -164,16 +167,100 @@ async fn previous_frame_mode_accumulates_drift() {
 }
 
 #[tokio::test]
-async fn advanced_configuration_changes_the_result() {
+async fn strict_configuration_fails_generated_and_imported_alike() {
+    // Generated: an impossible correspondence distance must fail.
     let mut strict = base(4);
-    strict["max_correspondence_dist"] = json!(0.0001);
-    let strict = post_frame(strict).await;
+    strict["matcher"]["max_correspondence_dist"] = json!(0.0001);
+    let generated = post_frame(strict).await;
+    assert!(!generated.valid);
+    assert_eq!(generated.termination, "NoCorrespondences");
+
+    // Imported: the same matcher setting, with a guess far from the truth.
+    let mut far = sample_pair();
+    far["initial_guess"] = json!([10.0, 10.0, 0.5]);
+    far["config"] = json!({ "max_correspondence_dist": 0.0001 });
+    let (status, body) = post_raw("/api/import", far).await;
+    assert_eq!(status, 200, "{body}");
+    let report: csm_rs_demo::ImportResponse = serde_json::from_str(&body).unwrap();
+    assert!(!report.valid);
+    assert_eq!(report.termination, "NoCorrespondences");
+
+    // The same import at the default distance still matches.
+    let mut lenient = sample_pair();
+    lenient["initial_guess"] = json!([0.05, 0.0, 0.0]);
+    let (status, body) = post_raw("/api/import", lenient).await;
+    assert_eq!(status, 200, "{body}");
+    let report: csm_rs_demo::ImportResponse = serde_json::from_str(&body).unwrap();
+    assert!(report.valid, "{body}");
+}
+
+#[tokio::test]
+async fn invalid_matcher_configuration_is_rejected_identically() {
+    let mut bad = base(4);
+    bad["matcher"]["max_iterations"] = json!(-1);
+    let (generated_status, generated_body) = post_raw("/api/frame", bad).await;
+    assert_eq!(generated_status, 400);
+
+    let mut pair = sample_pair();
+    pair["config"] = json!({ "max_iterations": -1 });
+    let (import_status, import_body) = post_raw("/api/import", pair).await;
+    assert_eq!(import_status, 400);
+
     assert!(
-        !strict.valid,
-        "an impossible correspondence distance must fail"
+        generated_body.contains("iteration limit"),
+        "{generated_body}"
     );
-    assert!(!strict.accepted);
-    assert_eq!(strict.termination, "NoCorrespondences");
+    assert!(import_body.contains("iteration limit"), "{import_body}");
+}
+
+#[tokio::test]
+async fn every_matcher_field_is_accepted_through_the_shared_mapping() {
+    // A configuration naming every public matcher setting must be accepted and
+    // produce a real match for both sources.
+    let full = json!({
+        "reading_min": 0.0,
+        "reading_max": 50.0,
+        "max_angular_deg": 45.0,
+        "max_linear": 1.0,
+        "max_iterations": 50,
+        "epsilon_xy": 0.0005,
+        "epsilon_theta": 0.0005,
+        "search": "naive",
+        "metric": "point_to_point",
+        "max_correspondence_dist": 2.0,
+        "sigma": 0.02,
+        "do_alpha_test": false,
+        "alpha_test_threshold_deg": 20.0,
+        "do_visibility_test": false,
+        "clustering_threshold": 0.05,
+        "orientation_neighbourhood": 3,
+        "outliers_max_perc": 0.9,
+        "adaptive_order": 0.7,
+        "adaptive_mult": 2.0,
+        "remove_doubles": true,
+        "restart": false,
+        "restart_threshold_mean_error": 0.02,
+        "restart_dt": 0.02,
+        "restart_dtheta": 0.03,
+        "ml_weighting": false,
+        "sigma_weighting": false,
+        "do_compute_covariance": true,
+        "debug_verify_tricks": false
+    });
+
+    let mut generated = base(4);
+    generated["matcher"] = full.clone();
+    let generated = post_frame(generated).await;
+    assert!(generated.valid);
+    assert_eq!(generated.covariance_status, "Computed");
+
+    let mut pair = sample_pair();
+    pair["config"] = full;
+    let (status, body) = post_raw("/api/import", pair).await;
+    assert_eq!(status, 200, "{body}");
+    let report: csm_rs_demo::ImportResponse = serde_json::from_str(&body).unwrap();
+    assert!(report.valid);
+    assert_eq!(report.covariance_status, "Computed");
 }
 
 #[tokio::test]
@@ -305,7 +392,11 @@ async fn malformed_imports_are_rejected_clearly() {
 
 #[tokio::test]
 async fn export_replay_round_trips() {
-    let (status, body) = post_raw("/api/export", json!({ "step": 5, "seed": 42 })).await;
+    let (status, body) = post_raw(
+        "/api/export",
+        json!({ "generation": { "step": 5, "seed": 42 } }),
+    )
+    .await;
     assert_eq!(status, 200, "{body}");
     let record: serde_json::Value = serde_json::from_str(&body).unwrap();
     assert_eq!(record["version"], 1);
