@@ -68,6 +68,50 @@ export interface PreviewResponse {
   segments: [[number, number], [number, number]][];
 }
 
+export interface CompareRequest {
+  generation: GenerationConfig;
+  reference_mode: string;
+  matcher_a: MatcherConfig;
+  matcher_b: MatcherConfig;
+  request_id: number;
+}
+
+/** Scans and poses shared by both sides of an A/B comparison. */
+export interface SharedScans {
+  truth_pose: [number, number, number];
+  initial_pose: [number, number, number];
+  reference: [number, number][];
+  sensor_unaligned: [number, number][];
+  sensor_true: [number, number][];
+  extent: number;
+  segments: [[number, number], [number, number]][];
+}
+
+/** One side's outcome; only the matcher parameters differed. */
+export interface CompareSide {
+  relative_truth_pose: [number, number, number];
+  estimated_pose: [number, number, number];
+  sensor_aligned: [number, number][];
+  valid: boolean;
+  accepted: boolean;
+  termination: string;
+  iterations: number;
+  nvalid: number;
+  error: number;
+  covariance_status: string;
+  normal_ms: number;
+}
+
+export interface CompareResponse {
+  request_id: number;
+  scenario: string;
+  reference_mode: string;
+  step: number;
+  shared: SharedScans;
+  a: CompareSide;
+  b: CompareSide;
+}
+
 export interface TraceCorrespondence {
   sensor_ray: number;
   reference_j1: number;
@@ -167,6 +211,18 @@ export async function previewFrame(request: PreviewRequest): Promise<PreviewResp
   });
   if (!response.ok) {
     throw new Error((await response.text()) || `preview failed (${response.status})`);
+  }
+  return response.json();
+}
+
+export async function compareFrame(request: CompareRequest): Promise<CompareResponse> {
+  const response = await fetch('/api/compare', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  if (!response.ok) {
+    throw new Error((await response.text()) || `compare failed (${response.status})`);
   }
   return response.json();
 }

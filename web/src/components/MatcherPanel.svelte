@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Writable } from 'svelte/store';
   import {
     applyPreset,
     MATCHER_GROUPS,
@@ -7,17 +8,19 @@
     type FieldKey,
     type FieldSpec,
   } from '../lib/matcherFields';
-  import { DEFAULT_MATCHER } from '../lib/api';
-  import { issues, matcher, matcherPreset } from '../lib/state';
+  import { DEFAULT_MATCHER, type MatcherConfig } from '../lib/api';
+  import { abMode, editingSide, issues, matcherPreset } from '../lib/state';
+
+  let { target }: { target: Writable<MatcherConfig> } = $props();
 
   const invalid = $derived($issues.length > 0);
 
   function setField(key: FieldKey, value: unknown) {
-    matcher.update((current) => ({ ...current, [key]: value }));
+    target.update((current) => ({ ...current, [key]: value }));
   }
 
   function resetGroup(group: FieldGroup) {
-    matcher.update((current) => {
+    target.update((current) => {
       const next = { ...current };
       const writable = next as unknown as Record<string, unknown>;
       for (const field of group.fields) writable[field.key] = DEFAULT_MATCHER[field.key];
@@ -27,7 +30,7 @@
 
   function applyPresetId(id: string) {
     const preset = PRESETS.find((candidate) => candidate.id === id);
-    if (preset) matcher.set(applyPreset(preset));
+    if (preset) target.set(applyPreset(preset));
     matcherPreset.set('');
   }
 
@@ -38,24 +41,34 @@
   }
 
   function numberValue(field: FieldSpec): number {
-    return $matcher[field.key] as number;
+    return $target[field.key] as number;
   }
 
   function stringValue(field: FieldSpec): string {
-    return $matcher[field.key] as string;
+    return $target[field.key] as string;
   }
 
   function boolValue(field: FieldSpec): boolean {
-    return $matcher[field.key] as boolean;
+    return $target[field.key] as boolean;
   }
 </script>
 
 <section class="panel">
   <header>
-    <h2>Matcher</h2>
-    <button class="reset" onclick={() => matcher.set({ ...DEFAULT_MATCHER })}>reset all</button>
+    <h2>Matcher {$abMode ? $editingSide : ''}</h2>
+    <button class="reset" onclick={() => target.set({ ...DEFAULT_MATCHER })}>reset all</button>
   </header>
-  <p class="hint">Changes the algorithm, not the problem. Generated and imported scans use the same settings.</p>
+
+  {#if $abMode}
+    <div class="sides" role="tablist" aria-label="Configuration being edited">
+      <button class:active={$editingSide === 'A'} onclick={() => editingSide.set('A')}>A</button>
+      <button class:active={$editingSide === 'B'} onclick={() => editingSide.set('B')}>B</button>
+    </div>
+  {/if}
+
+  <p class="hint">
+    Changes the algorithm, not the problem. Generated and imported scans use the same settings.
+  </p>
 
   <label for="preset">Preset</label>
   <select id="preset" bind:value={$matcherPreset} onchange={(e) => applyPresetId(e.currentTarget.value)}>
@@ -157,6 +170,21 @@
     font-size: 12px;
     font-weight: 600;
     color: var(--muted);
+  }
+
+  .sides {
+    display: flex;
+    gap: 4px;
+    margin-top: 6px;
+  }
+
+  .sides button {
+    flex: 1;
+  }
+
+  .sides button.active {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 16%, var(--surface-2));
   }
 
   .hint {

@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use tower_http::services::ServeDir;
 
 use axum::http::StatusCode;
-use config::{GenerationConfig, PreviewRequest, RunRequest};
+use config::{CompareRequest, GenerationConfig, PreviewRequest, RunRequest};
 use engine::{match_pair, prepare_frame, PairReport, TraceIteration};
 pub use import::ImportResponse;
 use import::{export_session, replay_session, run_import, ScanPair};
@@ -31,6 +31,7 @@ pub fn app() -> Router {
     Router::new()
         .route("/api/frame", post(frame))
         .route("/api/preview", post(preview))
+        .route("/api/compare", post(compare))
         .route("/api/import", post(import))
         .route("/api/replay", post(replay))
         .route("/api/export", post(export))
@@ -314,6 +315,117 @@ async fn preview(
     Json(request): Json<PreviewRequest>,
 ) -> Result<Json<PreviewResponse>, (StatusCode, String)> {
     run_preview(&request)
+        .map(Json)
+        .map_err(|error| (StatusCode::BAD_REQUEST, error))
+}
+
+/// The scans and poses shared by both sides of an A/B comparison.
+#[derive(Serialize, Deserialize)]
+pub struct SharedScans {
+    pub truth_pose: [f64; 3],
+    pub initial_pose: [f64; 3],
+    pub reference: Vec<[f64; 2]>,
+    pub sensor_unaligned: Vec<[f64; 2]>,
+    pub sensor_true: Vec<[f64; 2]>,
+    pub extent: f64,
+    pub segments: Vec<[[f64; 2]; 2]>,
+}
+
+/// One side's outcome: parameters differed, inputs did not.
+#[derive(Serialize, Deserialize)]
+pub struct CompareSide {
+    pub relative_truth_pose: [f64; 3],
+    pub estimated_pose: [f64; 3],
+    pub sensor_aligned: Vec<[f64; 2]>,
+    pub valid: bool,
+    pub accepted: bool,
+    pub termination: String,
+    pub iterations: i32,
+    pub nvalid: i32,
+    pub error: f64,
+    pub covariance_status: String,
+    pub normal_ms: f64,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct CompareResponse {
+    pub request_id: u64,
+    pub scenario: String,
+    pub reference_mode: String,
+    pub step: u64,
+    pub shared: SharedScans,
+    pub a: CompareSide,
+    pub b: CompareSide,
+}
+
+fn compare_side(report: PairReport, sensor: &ScanFrame, truth: Pose) -> CompareSide {
+    let estimate = Pose::from_array(report.estimated_pose);
+    CompareSide {
+        relative_truth_pose: truth.to_array(),
+        estimated_pose: report.estimated_pose,
+        sensor_aligned: world_points(sensor, estimate),
+        valid: report.valid,
+        accepted: report.accepted,
+        termination: report.termination,
+        iterations: report.iterations,
+        nvalid: report.nvalid,
+        error: report.error,
+        covariance_status: report.covariance_status,
+        normal_ms: report.normal_ms,
+    }
+}
+
+/// Match two configurations on the *same* generated pair, so the comparison is
+/// fair by construction: only the matcher parameters can differ.
+pub fn run_compare(request: &CompareRequest) -> Result<CompareResponse, String> {
+    let gen = &request.generation;
+    gen.validate()?;
+    let scene = Scene::by_name(&gen.scenario);
+    let (reference, sensor, truth, guess) = if request.reference_mode == "previous_frame" {
+        step_scans(&scene, gen, gen.step.max(1))
+    } else {
+        fixed_scans(&scene, gen)
+    };
+    let reference_prepared = prepare_frame(&reference)?;
+    let sensor_prepared = prepare_frame(&sensor)?;
+    let a = match_pair(
+        reference_prepared.clone(),
+        sensor_prepared.clone(),
+        guess,
+        &request.matcher_a,
+        false,
+    )?;
+    let b = match_pair(
+        reference_prepared,
+        sensor_prepared,
+        guess,
+        &request.matcher_b,
+        false,
+    )?;
+
+    Ok(CompareResponse {
+        request_id: request.request_id,
+        scenario: scene.name.to_owned(),
+        reference_mode: request.reference_mode.clone(),
+        step: gen.step,
+        shared: SharedScans {
+            truth_pose: truth.to_array(),
+            initial_pose: guess.to_array(),
+            reference: world_points(&reference, Pose::IDENTITY),
+            sensor_unaligned: world_points(&sensor, guess),
+            sensor_true: world_points(&sensor, truth),
+            extent: scene.extent,
+            segments: scene.segments.iter().map(|s| [s.a, s.b]).collect(),
+        },
+        a: compare_side(a, &sensor, truth),
+        b: compare_side(b, &sensor, truth),
+    })
+}
+
+async fn compare(
+    Json(request): Json<CompareRequest>,
+) -> Result<Json<CompareResponse>, (StatusCode, String)> {
+    run_compare(&request)
         .map(Json)
         .map_err(|error| (StatusCode::BAD_REQUEST, error))
 }

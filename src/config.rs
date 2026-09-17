@@ -124,6 +124,29 @@ impl Default for PreviewRequest {
     }
 }
 
+/// Two matcher configurations compared on one shared generated problem.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CompareRequest {
+    pub generation: GenerationConfig,
+    pub reference_mode: String,
+    pub matcher_a: MatcherConfig,
+    pub matcher_b: MatcherConfig,
+    pub request_id: u64,
+}
+
+impl Default for CompareRequest {
+    fn default() -> Self {
+        Self {
+            generation: GenerationConfig::default(),
+            reference_mode: "fixed".to_owned(),
+            matcher_a: MatcherConfig::default(),
+            matcher_b: MatcherConfig::default(),
+            request_id: 0,
+        }
+    }
+}
+
 /// Every public matcher setting of the pinned csm-rs revision.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]

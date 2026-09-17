@@ -151,10 +151,14 @@
     if (visible.unaligned) cloud(data.sensor_unaligned, color('--raw'), 0.75);
     if (visible.reference) cloud(data.reference, color('--ref'), 0.9);
     if (visible.aligned && data.sensor_aligned) cloud(data.sensor_aligned, color('--aligned'), 0.95);
+    if (visible.alignedB && data.sensor_aligned_b)
+      cloud(data.sensor_aligned_b, color('--aligned-b'), 0.95);
 
     if (visible.truth) drawArrow(ctx, data.truth_pose, color('--truth'));
     if (visible.unaligned) drawArrow(ctx, data.initial_pose, color('--raw'));
     if (visible.aligned && data.estimated_pose) drawArrow(ctx, data.estimated_pose, color('--aligned'));
+    if (visible.alignedB && data.estimated_pose_b)
+      drawArrow(ctx, data.estimated_pose_b, color('--aligned-b'));
   }
 
   onMount(() => {
@@ -196,7 +200,8 @@
     <label><input type="checkbox" bind:checked={$layers.walls} /> walls</label>
     <label><input type="checkbox" bind:checked={$layers.reference} /> <i class="sw ref"></i>reference</label>
     <label><input type="checkbox" bind:checked={$layers.unaligned} /> <i class="sw raw"></i>raw sensor</label>
-    <label><input type="checkbox" bind:checked={$layers.aligned} /> <i class="sw aligned"></i>aligned</label>
+    <label><input type="checkbox" bind:checked={$layers.aligned} /> <i class="sw aligned"></i>aligned A</label>
+    <label><input type="checkbox" bind:checked={$layers.alignedB} /> <i class="sw aligned-b"></i>aligned B</label>
     <label><input type="checkbox" bind:checked={$layers.truth} /> <i class="sw truth"></i>truth</label>
     <button class="reset" onclick={resetView}>reset view</button>
   </fieldset>
@@ -258,6 +263,7 @@
   .sw.ref { background: var(--ref); }
   .sw.raw { background: var(--raw); }
   .sw.aligned { background: var(--aligned); }
+  .sw.aligned-b { background: var(--aligned-b); }
   .sw.truth { background: var(--truth); }
 
   .reset {

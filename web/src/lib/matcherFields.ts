@@ -388,3 +388,35 @@ export function matcherIssues(m: MatcherConfig): string[] {
 export function applyPreset(preset: Preset): MatcherConfig {
   return { ...DEFAULT_MATCHER, ...preset.overrides };
 }
+
+export interface MatcherDifference {
+  label: string;
+  a: string;
+  b: string;
+}
+
+function displayValue(field: FieldSpec, value: unknown): string {
+  if (field.kind === 'toggle') return value ? 'on' : 'off';
+  if (field.kind === 'select') {
+    return field.options?.find((option) => option.value === value)?.label ?? String(value);
+  }
+  const numeric = typeof value === 'number' ? String(Number(value.toPrecision(5))) : String(value);
+  return field.unit ? `${numeric} ${field.unit}` : numeric;
+}
+
+/** Fields whose values differ between the two configurations. */
+export function matcherDiff(a: MatcherConfig, b: MatcherConfig): MatcherDifference[] {
+  const differences: MatcherDifference[] = [];
+  for (const group of MATCHER_GROUPS) {
+    for (const field of group.fields) {
+      if (a[field.key] !== b[field.key]) {
+        differences.push({
+          label: field.label,
+          a: displayValue(field, a[field.key]),
+          b: displayValue(field, b[field.key]),
+        });
+      }
+    }
+  }
+  return differences;
+}

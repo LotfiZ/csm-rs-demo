@@ -381,6 +381,49 @@ async fn invalid_generation_is_rejected_for_run_and_preview() {
     assert!(preview_body.contains("field of view"), "{preview_body}");
 }
 
+#[tokio::test]
+async fn a_b_share_inputs_and_differ_only_by_parameters() {
+    let request = json!({
+        "generation": { "step": 4, "seed": 7 },
+        "reference_mode": "fixed",
+        "matcher_a": {},
+        "matcher_b": { "max_correspondence_dist": 0.0001 }
+    });
+    let (status, body) = post_raw("/api/compare", request).await;
+    assert_eq!(status, 200, "{body}");
+    let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+    // The scans and poses are shared, not duplicated per side.
+    assert!(value["shared"]["reference"].as_array().unwrap().len() > 100);
+    assert!(value["a"].get("reference").is_none());
+    assert!(value["b"].get("reference").is_none());
+
+    // Same problem, different parameters: only the outcome differs.
+    assert_eq!(
+        value["a"]["relative_truth_pose"],
+        value["b"]["relative_truth_pose"]
+    );
+    assert_eq!(value["a"]["valid"], true);
+    assert_eq!(value["b"]["valid"], false);
+    assert_eq!(value["b"]["termination"], "NoCorrespondences");
+}
+
+#[tokio::test]
+async fn a_b_with_identical_parameters_agree() {
+    let request = json!({
+        "generation": { "step": 4 },
+        "reference_mode": "fixed",
+        "matcher_a": {},
+        "matcher_b": {}
+    });
+    let (status, body) = post_raw("/api/compare", request).await;
+    assert_eq!(status, 200, "{body}");
+    let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(value["a"]["estimated_pose"], value["b"]["estimated_pose"]);
+    assert_eq!(value["a"]["termination"], value["b"]["termination"]);
+    assert_eq!(value["a"]["sensor_aligned"], value["b"]["sensor_aligned"]);
+}
+
 async fn post_raw(path: &str, body: serde_json::Value) -> (u16, String) {
     let request = axum::http::Request::builder()
         .method("POST")

@@ -3,7 +3,7 @@
   import LeftPanel from './components/LeftPanel.svelte';
   import MatcherPanel from './components/MatcherPanel.svelte';
   import Plot from './components/Plot.svelte';
-  import { error, initTheme, issues, outdated, run, running, theme, toggleTheme } from './lib/state';
+  import { error, initTheme, issues, outdated, run, running, theme, toggleTheme, abMode, setAbMode, matcher, matcherB, editingSide } from './lib/state';
   import { onMount } from 'svelte';
 
   onMount(() => {
@@ -20,15 +20,25 @@
       <span class="sub">scan-matching experiments on the real library</span>
     </div>
 
+    <div class="spacer"></div>
+
     {#if $outdated}
       <span class="badge">inputs changed — results outdated</span>
     {/if}
 
+    <button
+      class="ab"
+      class:active={$abMode}
+      aria-pressed={$abMode}
+      onclick={() => setAbMode(!$abMode)}
+    >
+      A/B
+    </button>
     <button class="theme" onclick={toggleTheme} aria-label="Toggle theme">
       {$theme === 'dark' ? 'Light' : 'Dark'}
     </button>
     <button class="run" onclick={run} disabled={$running || $issues.length > 0}>
-      {$running ? 'Running…' : 'Run match'}
+      {$running ? 'Running…' : $abMode ? 'Run A/B' : 'Run match'}
     </button>
   </header>
 
@@ -39,7 +49,7 @@
   <div class="body">
     <LeftPanel />
     <div class="plot-cell"><Plot /></div>
-    <MatcherPanel />
+    <MatcherPanel target={$abMode && $editingSide === 'B' ? matcherB : matcher} />
   </div>
 
   <BottomPanel />
@@ -74,8 +84,11 @@
     color: var(--muted);
   }
 
+  .spacer {
+    flex: 1;
+  }
+
   .badge {
-    margin-left: auto;
     font-size: 12px;
     color: var(--accent-contrast);
     background: var(--raw);
@@ -83,16 +96,9 @@
     padding: 2px 8px;
   }
 
-  .badge + .theme {
-    margin-left: 0;
-  }
-
-  .theme {
-    margin-left: auto;
-  }
-
-  .theme:first-of-type {
-    margin-left: auto;
+  .ab.active {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 18%, var(--surface-2));
   }
 
   .run {
