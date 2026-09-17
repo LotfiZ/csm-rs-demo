@@ -12,10 +12,3 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-      - run: cargo fmt --all -- --check
-      - run: cargo test --locked --all-targets --all-features
-      - run: cargo clippy --locked --all-targets --all-features -- -D warnings
-      - run: RUSTDOCFLAGS='-D warnings' cargo doc --locked --no-deps

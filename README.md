@@ -51,7 +51,7 @@ cargo test --locked --all-targets --all-features
 cargo clippy --locked --all-targets --all-features -- -D warnings
 ```
 
-This application has its own release cycle. It depends on the public
+This application has its own release cycle. It depends on the
 [csm-rs library](https://github.com/LotfiZ/csm-rs) at the Git revision recorded
 in `Cargo.toml`; `Cargo.lock` is committed for reproducible dependency resolution.
 To upgrade the library, change that revision, run `cargo check` to update the
@@ -60,6 +60,7 @@ lockfile, and run the checks above. Commit the manifest and lockfile together.
 The initial application was extracted unchanged from `demo/` in csm-rs commit
 `5c78370549e3f1cc119fa81a56c2fbe727ca90ff`. Its earlier history remains in that
 repository. Interface redesign is separate from this extraction.
+
 
 ## License
 
