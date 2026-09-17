@@ -61,6 +61,7 @@ pub fn app_with_data_dir(data_dir: PathBuf) -> Router {
             "/api/experiments",
             get(list_experiments).post(save_experiment),
         )
+        .route("/api/experiments/import", post(import_experiment))
         .route("/api/experiments/{name}", get(load_experiment))
         .fallback_service(ServeDir::new("web/dist"))
         .with_state(state)
@@ -645,10 +646,18 @@ async fn list_experiments(
 async fn load_experiment(
     State(state): State<AppState>,
     Path(name): Path<String>,
-) -> Result<Json<experiments::ExperimentDocument>, (StatusCode, String)> {
+) -> Result<Json<experiments::ImportOutcome>, (StatusCode, String)> {
     experiments::load(&state.data_dir, &name)
         .map(Json)
         .map_err(|error| (StatusCode::NOT_FOUND, error))
+}
+
+async fn import_experiment(
+    Json(document): Json<experiments::ExperimentDocument>,
+) -> Result<Json<experiments::ImportOutcome>, (StatusCode, String)> {
+    experiments::inspect(document)
+        .map(Json)
+        .map_err(|error| (StatusCode::BAD_REQUEST, error))
 }
 
 #[cfg(test)]

@@ -72,6 +72,47 @@ pub struct ExperimentList {
     pub names: Vec<String>,
 }
 
+/// A loaded or imported experiment plus any version warnings.
+#[derive(Serialize, Deserialize)]
+pub struct ImportOutcome {
+    pub document: ExperimentDocument,
+    pub warnings: Vec<String>,
+}
+
+/// Validate a portable document and explain any version mismatch.
+///
+/// An unsupported version is a hard error; a different library or generator
+/// version is only a warning, because results are not guaranteed identical.
+pub fn inspect(document: ExperimentDocument) -> Result<ImportOutcome, String> {
+    if document.format != FORMAT {
+        return Err(format!(
+            "unsupported experiment format '{}'",
+            document.format
+        ));
+    }
+    if document.version != VERSION {
+        return Err(format!(
+            "unsupported experiment version {}",
+            document.version
+        ));
+    }
+    let current = Versions::default();
+    let mut warnings = Vec::new();
+    if document.versions.library != current.library {
+        warnings.push(format!(
+            "saved with csm-rs {} but the current library is {}; reruns may differ",
+            document.versions.library, current.library
+        ));
+    }
+    if document.versions.generator != current.generator {
+        warnings.push(format!(
+            "saved by generator {} but the current generator is {}; regenerated scans may differ",
+            document.versions.generator, current.generator
+        ));
+    }
+    Ok(ImportOutcome { document, warnings })
+}
+
 fn validate_name(name: &str) -> Result<(), String> {
     if name.is_empty() || name.len() > 64 {
         return Err("experiment name must be 1 to 64 characters".to_owned());
@@ -110,24 +151,13 @@ pub fn save(dir: &Path, request: SaveExperimentRequest) -> Result<ExperimentDocu
 }
 
 /// Load one experiment by name.
-pub fn load(dir: &Path, name: &str) -> Result<ExperimentDocument, String> {
+/// Load one experiment by name, with version warnings.
+pub fn load(dir: &Path, name: &str) -> Result<ImportOutcome, String> {
     let path = path_for(dir, name)?;
     let json = fs::read_to_string(&path).map_err(|_| format!("experiment '{name}' not found"))?;
     let document: ExperimentDocument =
         serde_json::from_str(&json).map_err(|error| error.to_string())?;
-    if document.format != FORMAT {
-        return Err(format!(
-            "unsupported experiment format '{}'",
-            document.format
-        ));
-    }
-    if document.version != VERSION {
-        return Err(format!(
-            "unsupported experiment version {}",
-            document.version
-        ));
-    }
-    Ok(document)
+    inspect(document)
 }
 
 /// List saved experiment names, sorted.

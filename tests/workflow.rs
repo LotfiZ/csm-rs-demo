@@ -604,10 +604,18 @@ async fn experiments_persist_across_instances_with_a_saved_snapshot() {
     let (status, text) = get_raw(restarted.clone(), "/api/experiments/easy_alignment").await;
     assert_eq!(status, 200, "{text}");
     let loaded: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(loaded["session"]["result"]["estimated_pose"], snapshot);
+    assert_eq!(
+        loaded["document"]["session"]["result"]["estimated_pose"],
+        snapshot
+    );
 
     // A rerun is produced separately from the stored observation.
-    let (status, text) = post_raw_router(restarted, "/api/replay", loaded["session"].clone()).await;
+    let (status, text) = post_raw_router(
+        restarted,
+        "/api/replay",
+        loaded["document"]["session"].clone(),
+    )
+    .await;
     assert_eq!(status, 200, "{text}");
     let rerun: serde_json::Value = serde_json::from_str(&text).unwrap();
     let rerun_pose = rerun["estimated_pose"].as_array().unwrap();
@@ -631,6 +639,50 @@ async fn experiment_names_reject_path_traversal() {
     });
     let (status, text) = post_raw_router(router, "/api/experiments", body).await;
     assert_eq!(status, 400, "{text}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn portable_experiment_round_trips_and_warns_on_version_mismatch() {
+    let dir = temp_dir("portable");
+    let router = csm_rs_demo::app_with_data_dir(dir.clone());
+    let body = json!({
+        "name": "portable",
+        "run": { "generation": { "step": 4, "seed": 7 }, "matcher": {}, "reference_mode": "fixed", "request_id": 1 }
+    });
+    let (status, text) = post_raw_router(router.clone(), "/api/experiments", body).await;
+    assert_eq!(status, 200, "{text}");
+    let document: serde_json::Value = serde_json::from_str(&text).unwrap();
+    // Portable documents stay compact: no bulky traces are stored.
+    assert!(document["session"].get("trace").is_none());
+
+    // Round-trip: importing the same document validates with no warnings.
+    let (status, text) =
+        post_raw_router(router.clone(), "/api/experiments/import", document.clone()).await;
+    assert_eq!(status, 200, "{text}");
+    let outcome: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert!(outcome["warnings"].as_array().unwrap().is_empty());
+    assert_eq!(outcome["document"]["name"], "portable");
+
+    // Unsupported versions are rejected clearly.
+    let mut future = document.clone();
+    future["version"] = json!(99);
+    let (status, text) = post_raw_router(router.clone(), "/api/experiments/import", future).await;
+    assert_eq!(status, 400);
+    assert!(text.contains("version"), "{text}");
+
+    // A library mismatch is a warning, not a rejection.
+    let mut mismatched = document;
+    mismatched["versions"]["library"] = json!("0000000000000000000000000000000000000000");
+    let (status, text) = post_raw_router(router, "/api/experiments/import", mismatched).await;
+    assert_eq!(status, 200, "{text}");
+    let outcome: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert!(outcome["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|warning| warning.as_str().unwrap().contains("csm-rs")));
+
     let _ = std::fs::remove_dir_all(&dir);
 }
 

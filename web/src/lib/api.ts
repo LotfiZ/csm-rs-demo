@@ -200,6 +200,12 @@ export interface ExperimentList {
   names: string[];
 }
 
+/** A loaded or imported experiment plus version warnings. */
+export interface ImportOutcome {
+  document: ExperimentDocument;
+  warnings: string[];
+}
+
 export interface TraceCorrespondence {
   sensor_ray: number;
   reference_j1: number;
@@ -367,12 +373,16 @@ export function saveExperiment(
   return post('/api/experiments', { name, run, matcher_b });
 }
 
-export async function loadExperiment(name: string): Promise<ExperimentDocument> {
+export async function loadExperiment(name: string): Promise<ImportOutcome> {
   const response = await fetch(`/api/experiments/${encodeURIComponent(name)}`);
   if (!response.ok) {
     throw new Error((await response.text()) || `load experiment failed (${response.status})`);
   }
   return response.json();
+}
+
+export function importExperiment(document: ExperimentDocument): Promise<ImportOutcome> {
+  return post('/api/experiments/import', document);
 }
 
 export function replaySession(session: SavedSession): Promise<ImportResponse> {

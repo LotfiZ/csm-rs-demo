@@ -1,6 +1,9 @@
 <script lang="ts">
   import {
     experiments,
+    experimentWarnings,
+    exportLoadedExperiment,
+    importPortable,
     loadedExperiment,
     openExperiment,
     rerunLoadedExperiment,
@@ -9,6 +12,7 @@
   } from '../lib/state';
 
   let name = $state('');
+  let portableText = $state('');
 
   const delta = $derived.by(() => {
     const doc = $loadedExperiment;
@@ -75,8 +79,36 @@
         termination means the rerun does not reproduce the stored snapshot.
       </p>
     {/if}
+
+    {#if $experimentWarnings.length > 0}
+      <ul class="warnings" role="alert">
+        {#each $experimentWarnings as warning (warning)}
+          <li>{warning}</li>
+        {/each}
+      </ul>
+    {/if}
   </div>
 {/if}
+
+  <h2>Portable document</h2>
+  <div class="row">
+    <button
+      onclick={() => (portableText = exportLoadedExperiment())}
+      disabled={!$loadedExperiment}
+    >
+      Export
+    </button>
+    <button onclick={() => importPortable(portableText)} disabled={portableText.trim() === ''}>
+      Import
+    </button>
+  </div>
+  <textarea
+    bind:value={portableText}
+    rows="5"
+    spellcheck="false"
+    placeholder="Paste a portable experiment document"
+    aria-label="Portable experiment document"
+  ></textarea>
 
 <style>
   h2 {
@@ -142,5 +174,29 @@
   .wide {
     width: 100%;
     margin: 6px 0;
+  }
+
+  .warnings {
+    margin: 6px 0 0;
+    padding: 6px 8px 6px 22px;
+    list-style: disc;
+    border: 1px solid var(--raw);
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--raw) 12%, var(--surface));
+    font-size: 11px;
+    color: var(--text);
+  }
+
+  textarea {
+    width: 100%;
+    margin-top: 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text);
+    background: var(--surface-2);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    padding: 6px;
+    resize: vertical;
   }
 </style>

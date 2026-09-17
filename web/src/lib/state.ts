@@ -4,6 +4,7 @@ import {
   benchmarkFrame,
   compareFrame,
   importScanPair,
+  importExperiment,
   listExperiments,
   loadExperiment,
   previewFrame,
@@ -73,6 +74,7 @@ export const imported = writable<ImportResponse | null>(null);
 
 export const experiments = writable<string[]>([]);
 export const loadedExperiment = writable<ExperimentDocument | null>(null);
+export const experimentWarnings = writable<string[]>([]);
 export const rerunResult = writable<ImportResponse | null>(null);
 
 /** Monotonic id; the response carries it back so stale replies can be dropped. */
@@ -300,6 +302,7 @@ export async function saveCurrentExperiment(name: string) {
     };
     const document = await saveExperiment(name, run, get(abMode) ? get(matcherB) : null);
     loadedExperiment.set(document);
+    experimentWarnings.set([]);
     rerunResult.set(null);
     await refreshExperiments();
   } catch (cause) {
@@ -311,8 +314,10 @@ export async function saveCurrentExperiment(name: string) {
 export async function openExperiment(name: string) {
   error.set(null);
   try {
-    const document = await loadExperiment(name);
+    const outcome = await loadExperiment(name);
+    const document = outcome.document;
     loadedExperiment.set(document);
+    experimentWarnings.set(outcome.warnings);
     rerunResult.set(null);
     generation.set({ ...document.session.generation });
     matcher.set({ ...document.session.matcher });
@@ -322,6 +327,26 @@ export async function openExperiment(name: string) {
   } catch (cause) {
     error.set(cause instanceof Error ? cause.message : String(cause));
   }
+}
+
+/** Import a portable experiment document, validating its version. */
+export async function importPortable(text: string) {
+  error.set(null);
+  try {
+    const document = JSON.parse(text) as ExperimentDocument;
+    const outcome = await importExperiment(document);
+    loadedExperiment.set(outcome.document);
+    experimentWarnings.set(outcome.warnings);
+    rerunResult.set(null);
+  } catch (cause) {
+    error.set(cause instanceof Error ? cause.message : String(cause));
+  }
+}
+
+/** The loaded experiment as a portable document, for copy/export. */
+export function exportLoadedExperiment(): string {
+  const document = get(loadedExperiment);
+  return document ? JSON.stringify(document, null, 2) : '';
 }
 
 /** Rerun a loaded experiment from its stored scans, distinct from its snapshot. */
