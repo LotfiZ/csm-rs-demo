@@ -162,14 +162,14 @@
       ctx.globalAlpha = 1;
     };
 
-    if (visible.truth) cloud(data.sensor_true, color('--truth'), 0.9);
+    if (visible.truth && data.sensor_true) cloud(data.sensor_true, color('--truth'), 0.9);
     if (visible.unaligned) cloud(data.sensor_unaligned, color('--raw'), 0.75);
     if (visible.reference) cloud(data.reference, color('--ref'), 0.9);
     if (visible.aligned && data.sensor_aligned) cloud(data.sensor_aligned, color('--aligned'), 0.95);
     if (visible.alignedB && data.sensor_aligned_b)
       cloud(data.sensor_aligned_b, color('--aligned-b'), 0.95);
 
-    if (visible.truth) drawArrow(ctx, data.truth_pose, color('--truth'));
+    if (visible.truth && data.truth_pose) drawArrow(ctx, data.truth_pose, color('--truth'));
     if (visible.unaligned) drawArrow(ctx, data.initial_pose, color('--raw'));
     if (visible.aligned && data.estimated_pose) drawArrow(ctx, data.estimated_pose, color('--aligned'));
     if (visible.alignedB && data.estimated_pose_b)

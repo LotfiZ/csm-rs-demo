@@ -145,6 +145,24 @@ export interface BenchmarkResponse {
   b: BenchmarkStats;
 }
 
+/** Imported pair result. There is no ground truth, by design. */
+export interface ImportResponse {
+  reference: [number, number][];
+  sensor_unaligned: [number, number][];
+  sensor_aligned: [number, number][];
+  initial_pose: [number, number, number];
+  estimated_pose: [number, number, number];
+  valid: boolean;
+  accepted: boolean;
+  termination: string;
+  iterations: number;
+  nvalid: number;
+  error: number;
+  covariance_status: string;
+  covariance: [number, number, number] | null;
+  extent: number;
+}
+
 export interface TraceCorrespondence {
   sensor_ray: number;
   reference_j1: number;
@@ -270,6 +288,18 @@ export async function benchmarkFrame(request: BenchmarkRequest): Promise<Benchma
   });
   if (!response.ok) {
     throw new Error((await response.text()) || `benchmark failed (${response.status})`);
+  }
+  return response.json();
+}
+
+export async function importScanPair(pair: unknown): Promise<ImportResponse> {
+  const response = await fetch('/api/import', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(pair),
+  });
+  if (!response.ok) {
+    throw new Error((await response.text()) || `import failed (${response.status})`);
   }
   return response.json();
 }

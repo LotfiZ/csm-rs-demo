@@ -3,12 +3,14 @@ import {
   DEFAULT_MATCHER,
   benchmarkFrame,
   compareFrame,
+  importScanPair,
   previewFrame,
   runFrame,
   type BenchmarkResponse,
   type CompareResponse,
   type FrameResponse,
   type GenerationConfig,
+  type ImportResponse,
   type MatcherConfig,
   type PreviewRequest,
   type PreviewResponse,
@@ -60,6 +62,9 @@ export const sequence = writable<SequenceState | null>(null);
 export const sequenceIndex = writable(0);
 export const sequenceProgress = writable<{ done: number; total: number } | null>(null);
 export const playing = writable(false);
+
+export const importMode = writable(false);
+export const imported = writable<ImportResponse | null>(null);
 
 /** Monotonic id; the response carries it back so stale replies can be dropped. */
 const requestId = writable(0);
@@ -120,22 +125,34 @@ export const outdated = derived(
 export interface ViewData {
   reference: [number, number][];
   sensor_unaligned: [number, number][];
-  sensor_true: [number, number][];
+  sensor_true?: [number, number][];
   sensor_aligned?: [number, number][];
   estimated_pose?: [number, number, number];
   sensor_aligned_b?: [number, number][];
   estimated_pose_b?: [number, number, number];
-  truth_pose: [number, number, number];
+  truth_pose?: [number, number, number];
   initial_pose: [number, number, number];
   extent: number;
   segments: [[number, number], [number, number]][];
   trajectory_true?: [number, number][];
   trajectory_estimate?: [number, number][];
   rejected?: boolean;
+  hasTruth?: boolean;
 }
 
 export const view = derived(
-  [result, compare, preview, outdated, abMode, sequenceMode, sequence, sequenceIndex],
+  [
+    result,
+    compare,
+    preview,
+    outdated,
+    abMode,
+    sequenceMode,
+    sequence,
+    sequenceIndex,
+    importMode,
+    imported,
+  ],
   (
     [
       $result,
@@ -146,8 +163,22 @@ export const view = derived(
       $sequenceMode,
       $sequence,
       $index,
+      $importMode,
+      $imported,
     ],
   ): ViewData | null => {
+    if ($importMode && $imported) {
+      return {
+        reference: $imported.reference,
+        sensor_unaligned: $imported.sensor_unaligned,
+        sensor_aligned: $imported.sensor_aligned,
+        estimated_pose: $imported.estimated_pose,
+        initial_pose: $imported.initial_pose,
+        extent: $imported.extent,
+        segments: [],
+        hasTruth: false,
+      };
+    }
     if ($sequenceMode && $sequence && !$outdated) {
       const frame = $sequence.frames[$index];
       if (frame) {
@@ -164,6 +195,7 @@ export const view = derived(
           trajectory_true: $sequence.truth,
           trajectory_estimate: $sequence.estimate,
           rejected: !frame.accepted,
+          hasTruth: true,
         };
       }
     }
@@ -180,6 +212,7 @@ export const view = derived(
         estimated_pose: $compare.a.estimated_pose,
         sensor_aligned_b: $compare.b.sensor_aligned,
         estimated_pose_b: $compare.b.estimated_pose,
+        hasTruth: true,
       };
     }
     if (!$ab && !$sequenceMode && $result && !$outdated) return $result as ViewData;
@@ -197,6 +230,8 @@ export function setAbMode(value: boolean) {
   abMode.set(value);
   if (value) {
     sequenceMode.set(false);
+    importMode.set(false);
+    imported.set(null);
     editingSide.set('A');
   }
 }
@@ -204,11 +239,41 @@ export function setAbMode(value: boolean) {
 export function setSequenceMode(value: boolean) {
   sequenceMode.set(value);
   pauseSequence();
-  if (value) setAbMode(false);
+  if (value) {
+    setAbMode(false);
+    importMode.set(false);
+    imported.set(null);
+  }
+}
+
+/** Import an ordered polar/Cartesian scan pair. No ground truth is invented. */
+export async function importPair(text: string) {
+  error.set(null);
+  try {
+    const pair = JSON.parse(text) as Record<string, unknown>;
+    // Imported inputs use the current matcher settings, like generated inputs.
+    pair.config = get(matcher);
+    const response = await importScanPair(pair);
+    imported.set(response);
+    importMode.set(true);
+    result.set(null);
+    compare.set(null);
+    sequence.set(null);
+    benchmark.set(null);
+  } catch (cause) {
+    error.set(cause instanceof Error ? cause.message : String(cause));
+  }
+}
+
+export function clearImport() {
+  importMode.set(false);
+  imported.set(null);
 }
 
 export async function run() {
   if (get(sequenceMode)) return runSequence();
+  importMode.set(false);
+  imported.set(null);
   if (get(issues).length > 0) {
     error.set('Fix the invalid matcher settings before running.');
     return;
@@ -319,6 +384,8 @@ export async function runSequence() {
     error.set('Fix the invalid matcher settings before running.');
     return;
   }
+  importMode.set(false);
+  imported.set(null);
   pauseSequence();
   const total = Math.max(1, get(generation).step);
   const mode = get(referenceMode);

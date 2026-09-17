@@ -1,5 +1,15 @@
 <script lang="ts">
-  import { activeFrame, matcher, matcherB, abMode, compare, diagnosticsOpen, view } from '../lib/state';
+  import {
+    activeFrame,
+    matcher,
+    matcherB,
+    abMode,
+    compare,
+    diagnosticsOpen,
+    importMode,
+    imported,
+    view,
+  } from '../lib/state';
   import { matcherDiff } from '../lib/matcherFields';
   import type { CompareSide } from '../lib/api';
 
@@ -49,7 +59,7 @@
   // generated points, never the requested separation.
   const observedOverlap = $derived.by(() => {
     const data = $view;
-    if (!data || data.reference.length === 0 || data.sensor_true.length === 0) return null;
+    if (!data || !data.sensor_true || data.reference.length === 0 || data.sensor_true.length === 0) return null;
     const tolerance = 0.15;
     let hits = 0;
     for (const [rx, ry] of data.reference) {
@@ -64,6 +74,14 @@
   });
 
   const differences = $derived(matcherDiff($matcher, $matcherB));
+
+  const importStatus = $derived.by(() => {
+    const data = $imported;
+    if (!data) return { label: 'no result', tone: 'muted' as const };
+    if (data.accepted) return { label: 'accepted', tone: 'ok' as const };
+    if (data.valid) return { label: 'valid candidate', tone: 'warn' as const };
+    return { label: 'failed candidate', tone: 'bad' as const };
+  });
 </script>
 
 <section class="bottom" aria-label="Metrics and diagnostics">
@@ -142,6 +160,41 @@
     {:else}
       <p class="note">Run to compare A and B on the same inputs.</p>
     {/if}
+  {:else if $importMode && $imported}
+    <div class="bar">
+      <div class="metric">
+        <span class="k">accuracy</span>
+        <span class="v muted">unavailable — no ground truth</span>
+      </div>
+      <div class="metric">
+        <span class="k">status</span>
+        <span class="v {importStatus.tone}">{importStatus.label}</span>
+      </div>
+      <div class="metric">
+        <span class="k">termination</span>
+        <span class="v mono">{$imported.termination}</span>
+      </div>
+      <div class="metric">
+        <span class="k">iterations</span>
+        <span class="v mono">{$imported.iterations}</span>
+      </div>
+      <div class="metric">
+        <span class="k">correspondences</span>
+        <span class="v mono">{$imported.nvalid}</span>
+      </div>
+      <div class="metric">
+        <span class="k">fitting error</span>
+        <span class="v mono">{$imported.error.toFixed(4)}</span>
+      </div>
+      <div class="metric">
+        <span class="k">uncertainty</span>
+        <span class="v mono">{$imported.covariance_status}</span>
+      </div>
+    </div>
+    <p class="note">
+      Imported data has no ground truth, so translation and rotation error are unavailable, not
+      zero. These results use the same matcher settings as generated inputs.
+    </p>
   {:else}
     <div class="bar">
       <div class="metric">

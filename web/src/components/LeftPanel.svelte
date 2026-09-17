@@ -1,13 +1,44 @@
 <script lang="ts">
   import { EXAMPLE_LIST, exampleById } from '../lib/examples';
-  import { exampleId, generation, loadExample, referenceMode, sequenceMode, trace } from '../lib/state';
+  import {
+    clearImport,
+    exampleId,
+    generation,
+    importMode,
+    importPair,
+    loadExample,
+    referenceMode,
+    sequenceMode,
+    trace,
+  } from '../lib/state';
 
   const selected = $derived(exampleById($exampleId));
 
   const fovDeg = $derived(($generation.half_span * 2 * 180) / Math.PI);
 
+  let pairText = $state('');
+
   function setFov(degrees: number) {
     generation.update((g) => ({ ...g, half_span: ((degrees / 2) * Math.PI) / 180 }));
+  }
+
+  function samplePair() {
+    const angles: number[] = [];
+    const readings: number[] = [];
+    const valid: boolean[] = [];
+    for (let i = 0; i < 61; i += 1) {
+      const a = -1.5 + i * 0.05;
+      angles.push(a);
+      readings.push(6 + 0.5 * Math.sin(3 * a));
+      valid.push(true);
+    }
+    return {
+      format: 'csm-rs-scan-pair',
+      version: 1,
+      initial_guess: [0, 0, 0],
+      reference: { kind: 'polar', angles, readings, valid },
+      sensor: { kind: 'polar', angles, readings, valid },
+    };
   }
 </script>
 
@@ -92,6 +123,23 @@
     <input type="checkbox" bind:checked={$trace} />
     Collect iteration trace
   </label>
+
+  <h2>Import scan pair</h2>
+  <p class="hint">Secondary action. Imported data has no ground truth.</p>
+  {#if $importMode}
+    <button class="wide" onclick={clearImport}>Show generated data</button>
+  {/if}
+  <textarea
+    bind:value={pairText}
+    rows="6"
+    spellcheck="false"
+    placeholder="Paste a csm-rs-scan-pair document"
+    aria-label="Scan pair JSON"
+  ></textarea>
+  <div class="row">
+    <button onclick={() => importPair(pairText)}>Load pair</button>
+    <button onclick={() => (pairText = JSON.stringify(samplePair(), null, 2))}>Sample</button>
+  </div>
 </section>
 
 <style>
@@ -162,5 +210,29 @@
     font-family: var(--font-mono);
     color: var(--text);
     float: right;
+  }
+
+  textarea {
+    width: 100%;
+    margin-top: 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text);
+    background: var(--surface-2);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    padding: 6px;
+    resize: vertical;
+  }
+
+  .row {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+  }
+
+  .wide {
+    width: 100%;
+    margin-top: 6px;
   }
 </style>
