@@ -144,18 +144,25 @@ pub fn prepare_frame(scan: &ScanFrame) -> Result<PreparedPolarScan, String> {
     .map_err(|error| error.to_string())
 }
 
-/// World points of a prepared scan under a transform, valid rays only.
-pub fn scan_points(scan: &PreparedPolarScan, transform: Pose) -> Vec<[f64; 2]> {
+/// World points for ordered rays under a transform, valid rays only.
+pub fn project_points(
+    angles: &[f64],
+    readings: &[f64],
+    valid: &[bool],
+    transform: Pose,
+) -> Vec<[f64; 2]> {
     let mut points = Vec::new();
-    for i in 0..scan.len() {
-        if !scan.valid()[i] {
+    for i in 0..angles.len() {
+        if !valid[i] {
             continue;
         }
-        let local = [
-            scan.readings()[i] * scan.angles()[i].cos(),
-            scan.readings()[i] * scan.angles()[i].sin(),
-        ];
+        let local = [readings[i] * angles[i].cos(), readings[i] * angles[i].sin()];
         points.push(transform.transform_point(local));
     }
     points
+}
+
+/// World points of a prepared scan under a transform, valid rays only.
+pub fn scan_points(scan: &PreparedPolarScan, transform: Pose) -> Vec<[f64; 2]> {
+    project_points(scan.angles(), scan.readings(), scan.valid(), transform)
 }

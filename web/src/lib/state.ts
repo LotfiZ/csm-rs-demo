@@ -112,10 +112,6 @@ export const outdated = derived(
   },
 );
 
-export const hasResult = derived([result, compare], ([$result, $compare]) =>
-  $result !== null || $compare !== null,
-);
-
 /** What the plot draws: the live result when current, otherwise a preview. */
 export interface ViewData {
   reference: [number, number][];

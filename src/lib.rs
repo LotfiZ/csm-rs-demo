@@ -14,7 +14,7 @@ use tower_http::services::ServeDir;
 
 use axum::http::StatusCode;
 use config::{CompareRequest, GenerationConfig, PreviewRequest, RunRequest};
-use engine::{match_pair, prepare_frame, PairReport, TraceIteration};
+use engine::{match_pair, prepare_frame, project_points, PairReport, TraceIteration};
 pub use import::ImportResponse;
 use import::{export_session, replay_session, run_import, ScanPair};
 use scene::Scene;
@@ -104,18 +104,7 @@ pub struct FrameResponse {
 }
 
 fn world_points(scan: &ScanFrame, transform: Pose) -> Vec<[f64; 2]> {
-    let mut points = Vec::new();
-    for i in 0..scan.angles.len() {
-        if !scan.valid[i] {
-            continue;
-        }
-        let local = [
-            scan.readings[i] * scan.angles[i].cos(),
-            scan.readings[i] * scan.angles[i].sin(),
-        ];
-        points.push(transform.transform_point(local));
-    }
-    points
+    project_points(&scan.angles, &scan.readings, &scan.valid, transform)
 }
 
 /// State shared by both reference policies.
