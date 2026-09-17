@@ -1,5 +1,6 @@
 <script lang="ts">
   import { EXAMPLE_LIST, exampleById } from '../lib/examples';
+  import ExperimentsPanel from './ExperimentsPanel.svelte';
   import {
     clearImport,
     exampleId,
@@ -140,6 +141,8 @@
     <button onclick={() => importPair(pairText)}>Load pair</button>
     <button onclick={() => (pairText = JSON.stringify(samplePair(), null, 2))}>Sample</button>
   </div>
+
+  <ExperimentsPanel />
 </section>
 
 <style>

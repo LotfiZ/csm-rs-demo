@@ -532,6 +532,108 @@ async fn post_raw(path: &str, body: serde_json::Value) -> (u16, String) {
     (status, String::from_utf8_lossy(&bytes).into_owned())
 }
 
+async fn post_raw_router(
+    router: axum::Router,
+    path: &str,
+    body: serde_json::Value,
+) -> (u16, String) {
+    let request = axum::http::Request::builder()
+        .method("POST")
+        .uri(path)
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .expect("request");
+    let response = router.oneshot(request).await.expect("router call");
+    let status = response.status().as_u16();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    (status, String::from_utf8_lossy(&bytes).into_owned())
+}
+
+async fn get_raw(router: axum::Router, path: &str) -> (u16, String) {
+    let request = axum::http::Request::builder()
+        .method("GET")
+        .uri(path)
+        .body(Body::empty())
+        .expect("request");
+    let response = router.oneshot(request).await.expect("router call");
+    let status = response.status().as_u16();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    (status, String::from_utf8_lossy(&bytes).into_owned())
+}
+
+fn temp_dir(tag: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("csm-demo-{}-{tag}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    dir
+}
+
+#[tokio::test]
+async fn experiments_persist_across_instances_with_a_saved_snapshot() {
+    let dir = temp_dir("persist");
+    let router = csm_rs_demo::app_with_data_dir(dir.clone());
+    let body = json!({
+        "name": "easy_alignment",
+        "run": { "generation": { "step": 4, "seed": 7 }, "matcher": {}, "reference_mode": "fixed", "request_id": 1 }
+    });
+    let (status, text) = post_raw_router(router, "/api/experiments", body).await;
+    assert_eq!(status, 200, "{text}");
+    let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let snapshot = saved["session"]["result"]["estimated_pose"].clone();
+    assert!(!snapshot.is_null());
+    assert_eq!(saved["versions"]["generator"], "1");
+    assert!(!saved["session"]["reference_angles"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+
+    // A fresh router instance stands in for an application restart.
+    let restarted = csm_rs_demo::app_with_data_dir(dir.clone());
+    let (status, text) = get_raw(restarted.clone(), "/api/experiments").await;
+    assert_eq!(status, 200, "{text}");
+    let list: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert!(list["names"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|name| name == "easy_alignment"));
+
+    let (status, text) = get_raw(restarted.clone(), "/api/experiments/easy_alignment").await;
+    assert_eq!(status, 200, "{text}");
+    let loaded: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(loaded["session"]["result"]["estimated_pose"], snapshot);
+
+    // A rerun is produced separately from the stored observation.
+    let (status, text) = post_raw_router(restarted, "/api/replay", loaded["session"].clone()).await;
+    assert_eq!(status, 200, "{text}");
+    let rerun: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let rerun_pose = rerun["estimated_pose"].as_array().unwrap();
+    let snapshot_pose = snapshot.as_array().unwrap();
+    for (a, b) in rerun_pose.iter().zip(snapshot_pose) {
+        let (a, b) = (a.as_f64().unwrap(), b.as_f64().unwrap());
+        assert!((a - b).abs() < 1e-9, "rerun {a} != snapshot {b}");
+    }
+    assert!(rerun.get("session").is_none());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn experiment_names_reject_path_traversal() {
+    let dir = temp_dir("traversal");
+    let router = csm_rs_demo::app_with_data_dir(dir.clone());
+    let body = json!({
+        "name": "../escape",
+        "run": { "generation": { "step": 1 } }
+    });
+    let (status, text) = post_raw_router(router, "/api/experiments", body).await;
+    assert_eq!(status, 400, "{text}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 fn sample_pair() -> serde_json::Value {
     let angles: Vec<f64> = (0..61).map(|i| -1.5 + i as f64 * 0.05).collect();
     let readings: Vec<f64> = angles.iter().map(|a| 6.0 + 0.5 * (3.0 * a).sin()).collect();

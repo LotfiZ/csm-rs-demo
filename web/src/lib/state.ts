@@ -4,10 +4,15 @@ import {
   benchmarkFrame,
   compareFrame,
   importScanPair,
+  listExperiments,
+  loadExperiment,
   previewFrame,
+  replaySession,
   runFrame,
+  saveExperiment,
   type BenchmarkResponse,
   type CompareResponse,
+  type ExperimentDocument,
   type FrameResponse,
   type GenerationConfig,
   type ImportResponse,
@@ -65,6 +70,10 @@ export const playing = writable(false);
 
 export const importMode = writable(false);
 export const imported = writable<ImportResponse | null>(null);
+
+export const experiments = writable<string[]>([]);
+export const loadedExperiment = writable<ExperimentDocument | null>(null);
+export const rerunResult = writable<ImportResponse | null>(null);
 
 /** Monotonic id; the response carries it back so stale replies can be dropped. */
 const requestId = writable(0);
@@ -268,6 +277,63 @@ export async function importPair(text: string) {
 export function clearImport() {
   importMode.set(false);
   imported.set(null);
+}
+
+export async function refreshExperiments() {
+  try {
+    experiments.set((await listExperiments()).names);
+  } catch {
+    // A missing data directory simply means no saved experiments yet.
+  }
+}
+
+/** Save the current run as a named experiment on the local backend. */
+export async function saveCurrentExperiment(name: string) {
+  error.set(null);
+  try {
+    const run: RunRequest = {
+      generation: get(generation),
+      matcher: get(matcher),
+      reference_mode: get(referenceMode),
+      trace: get(trace),
+      request_id: 0,
+    };
+    const document = await saveExperiment(name, run, get(abMode) ? get(matcherB) : null);
+    loadedExperiment.set(document);
+    rerunResult.set(null);
+    await refreshExperiments();
+  } catch (cause) {
+    error.set(cause instanceof Error ? cause.message : String(cause));
+  }
+}
+
+/** Load a saved experiment: apply its configuration and show its snapshot. */
+export async function openExperiment(name: string) {
+  error.set(null);
+  try {
+    const document = await loadExperiment(name);
+    loadedExperiment.set(document);
+    rerunResult.set(null);
+    generation.set({ ...document.session.generation });
+    matcher.set({ ...document.session.matcher });
+    referenceMode.set(document.session.reference_mode);
+    importMode.set(false);
+    imported.set(null);
+  } catch (cause) {
+    error.set(cause instanceof Error ? cause.message : String(cause));
+  }
+}
+
+/** Rerun a loaded experiment from its stored scans, distinct from its snapshot. */
+export async function rerunLoadedExperiment() {
+  const document = get(loadedExperiment);
+  if (!document) return;
+  error.set(null);
+  try {
+    rerunResult.set(await replaySession(document.session));
+  } catch (cause) {
+    error.set(cause instanceof Error ? cause.message : String(cause));
+  }
 }
 
 export async function run() {

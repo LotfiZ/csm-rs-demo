@@ -6,11 +6,12 @@
   import MatcherPanel from './components/MatcherPanel.svelte';
   import Plot from './components/Plot.svelte';
   import SequenceBar from './components/SequenceBar.svelte';
-  import { error, initTheme, issues, outdated, run, running, theme, toggleTheme, abMode, setAbMode, sequenceMode, setSequenceMode, matcher, matcherB, editingSide, activeFrame } from './lib/state';
+  import { error, initTheme, issues, outdated, run, running, theme, toggleTheme, abMode, setAbMode, sequenceMode, setSequenceMode, matcher, matcherB, editingSide, activeFrame, refreshExperiments } from './lib/state';
   import { onMount } from 'svelte';
 
   onMount(() => {
     initTheme();
+    refreshExperiments();
     // Show a working example immediately; Run stays explicit thereafter.
     run();
   });

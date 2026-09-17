@@ -3,13 +3,17 @@
 
 mod config;
 mod engine;
+mod experiments;
 mod import;
 mod scene;
 mod simulation;
 
-use axum::{routing::post, Json, Router};
+use axum::extract::{Path, State};
+use axum::{routing::get, routing::post, Json, Router};
 use csm_rs::{Matcher, Pose, PreparedMatcher, PreparedPolarScan};
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Instant;
 use tower_http::services::ServeDir;
 
@@ -26,11 +30,25 @@ use simulation::{
     sensor_pose as sensor_pose_at, ScanFrame, SessionRecord,
 };
 
-/// Build the demo router (shared by the server and the workflow tests).
+/// Shared server state: where named experiments are stored.
+#[derive(Clone)]
+pub struct AppState {
+    data_dir: Arc<PathBuf>,
+}
+
+/// Build the demo router with the default experiment directory.
+pub fn app() -> Router {
+    app_with_data_dir(experiments::default_data_dir())
+}
+
+/// Build the router with an explicit experiment directory (used by tests).
 ///
 /// The API routes are served directly; everything else falls through to the
 /// built frontend in `web/dist` (see `web/`).
-pub fn app() -> Router {
+pub fn app_with_data_dir(data_dir: PathBuf) -> Router {
+    let state = AppState {
+        data_dir: Arc::new(data_dir),
+    };
     Router::new()
         .route("/api/frame", post(frame))
         .route("/api/preview", post(preview))
@@ -39,7 +57,13 @@ pub fn app() -> Router {
         .route("/api/import", post(import))
         .route("/api/replay", post(replay))
         .route("/api/export", post(export))
+        .route(
+            "/api/experiments",
+            get(list_experiments).post(save_experiment),
+        )
+        .route("/api/experiments/{name}", get(load_experiment))
         .fallback_service(ServeDir::new("web/dist"))
+        .with_state(state)
 }
 
 async fn import(Json(pair): Json<ScanPair>) -> Result<Json<ImportResponse>, (StatusCode, String)> {
@@ -599,6 +623,32 @@ async fn benchmark(
     run_benchmark(&request)
         .map(Json)
         .map_err(|error| (StatusCode::BAD_REQUEST, error))
+}
+
+async fn save_experiment(
+    State(state): State<AppState>,
+    Json(request): Json<experiments::SaveExperimentRequest>,
+) -> Result<Json<experiments::ExperimentDocument>, (StatusCode, String)> {
+    experiments::save(&state.data_dir, request)
+        .map(Json)
+        .map_err(|error| (StatusCode::BAD_REQUEST, error))
+}
+
+async fn list_experiments(
+    State(state): State<AppState>,
+) -> Result<Json<experiments::ExperimentList>, (StatusCode, String)> {
+    experiments::list(&state.data_dir)
+        .map(Json)
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))
+}
+
+async fn load_experiment(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<experiments::ExperimentDocument>, (StatusCode, String)> {
+    experiments::load(&state.data_dir, &name)
+        .map(Json)
+        .map_err(|error| (StatusCode::NOT_FOUND, error))
 }
 
 #[cfg(test)]

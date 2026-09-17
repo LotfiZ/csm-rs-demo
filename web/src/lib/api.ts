@@ -163,6 +163,43 @@ export interface ImportResponse {
   extent: number;
 }
 
+export interface SavedSessionResult {
+  estimated_pose: [number, number, number];
+  valid: boolean;
+  termination: string;
+  iterations: number;
+  nvalid: number;
+  error: number;
+}
+
+export interface SavedSession {
+  version: number;
+  generation: GenerationConfig;
+  reference_mode: string;
+  matcher: MatcherConfig;
+  reference_angles: number[];
+  reference_readings: (number | null)[];
+  reference_valid: boolean[];
+  sensor_angles: number[];
+  sensor_readings: (number | null)[];
+  sensor_valid: boolean[];
+  initial_guess: [number, number, number];
+  result: SavedSessionResult;
+}
+
+export interface ExperimentDocument {
+  format: string;
+  version: number;
+  name: string;
+  versions: { app: string; generator: string; library: string };
+  session: SavedSession;
+  matcher_b: MatcherConfig | null;
+}
+
+export interface ExperimentList {
+  names: string[];
+}
+
 export interface TraceCorrespondence {
   sensor_ray: number;
   reference_j1: number;
@@ -302,4 +339,42 @@ export async function importScanPair(pair: unknown): Promise<ImportResponse> {
     throw new Error((await response.text()) || `import failed (${response.status})`);
   }
   return response.json();
+}
+
+async function post<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error((await response.text()) || `request failed (${response.status})`);
+  }
+  return response.json();
+}
+
+export async function listExperiments(): Promise<ExperimentList> {
+  const response = await fetch('/api/experiments');
+  if (!response.ok) throw new Error(`list experiments failed (${response.status})`);
+  return response.json();
+}
+
+export function saveExperiment(
+  name: string,
+  run: RunRequest,
+  matcher_b: MatcherConfig | null,
+): Promise<ExperimentDocument> {
+  return post('/api/experiments', { name, run, matcher_b });
+}
+
+export async function loadExperiment(name: string): Promise<ExperimentDocument> {
+  const response = await fetch(`/api/experiments/${encodeURIComponent(name)}`);
+  if (!response.ok) {
+    throw new Error((await response.text()) || `load experiment failed (${response.status})`);
+  }
+  return response.json();
+}
+
+export function replaySession(session: SavedSession): Promise<ImportResponse> {
+  return post('/api/replay', session);
 }
