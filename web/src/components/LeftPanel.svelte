@@ -60,23 +60,11 @@
   </ul>
   <p class="observe">{selected.observe}</p>
 
-  <h2>Generation</h2>
+  <h2>Problem</h2>
   <p class="hint">Shapes the problem. Never the matcher.</p>
-
-  <label for="seed">Seed</label>
-  <input id="seed" type="number" min="0" step="1" bind:value={$generation.seed} />
-
-  <label for="step">{$sequenceMode ? 'Frames' : 'Frame step'} <output>{$generation.step}</output></label>
-  <input id="step" type="range" min="0" max="24" step="1" bind:value={$generation.step} />
-
-  <label for="motion">Motion scale <output>{$generation.motion.toFixed(2)}</output></label>
-  <input id="motion" type="range" min="0" max="3" step="0.05" bind:value={$generation.motion} />
 
   <label for="noise">Range noise, m <output>{$generation.noise.toFixed(3)}</output></label>
   <input id="noise" type="range" min="0" max="0.2" step="0.002" bind:value={$generation.noise} />
-
-  <label for="dropout">Dropout <output>{$generation.dropout.toFixed(2)}</output></label>
-  <input id="dropout" type="range" min="0" max="0.8" step="0.01" bind:value={$generation.dropout} />
 
   <label for="initial">Initial guess error, m/rad <output>{$generation.initial_error.toFixed(2)}</output></label>
   <input
@@ -87,26 +75,43 @@
     step="0.01"
     bind:value={$generation.initial_error}
   />
+  <p class="hint">Ignored once you place the scan by hand on the plot.</p>
 
-  <label for="rays">Sensor rays</label>
-  <input id="rays" type="number" min="3" step="1" bind:value={$generation.ray_count} />
+  <label for="motion">Motion scale <output>{$generation.motion.toFixed(2)}</output></label>
+  <input id="motion" type="range" min="0" max="3" step="0.05" bind:value={$generation.motion} />
 
-  <label for="fov">Field of view, °</label>
-  <input
-    id="fov"
-    type="number"
-    min="1"
-    max="360"
-    step="1"
-    value={fovDeg.toFixed(1)}
-    oninput={(event) => setFov(Number(event.currentTarget.value))}
-  />
+  <details class="advanced">
+    <summary>Advanced generation</summary>
 
-  <label for="overlap">Overlap separation, m <output>{$generation.overlap.toFixed(2)}</output></label>
-  <input id="overlap" type="range" min="0" max="3" step="0.05" bind:value={$generation.overlap} />
-  <p class="hint">Moves the sensor further along its path. Less shared geometry is a measured outcome, not a set percentage.</p>
+    <label for="seed">Seed</label>
+    <input id="seed" type="number" min="0" step="1" bind:value={$generation.seed} />
 
-  <h2>Run controls</h2>
+    <label for="step">{$sequenceMode ? 'Frames' : 'Frame step'} <output>{$generation.step}</output></label>
+    <input id="step" type="range" min="0" max="24" step="1" bind:value={$generation.step} />
+
+    <label for="dropout">Dropout <output>{$generation.dropout.toFixed(2)}</output></label>
+    <input id="dropout" type="range" min="0" max="0.8" step="0.01" bind:value={$generation.dropout} />
+
+    <label for="rays">Sensor rays</label>
+    <input id="rays" type="number" min="3" step="1" bind:value={$generation.ray_count} />
+
+    <label for="fov">Field of view, °</label>
+    <input
+      id="fov"
+      type="number"
+      min="1"
+      max="360"
+      step="1"
+      value={fovDeg.toFixed(1)}
+      oninput={(event) => setFov(Number(event.currentTarget.value))}
+    />
+
+    <label for="overlap">Overlap separation, m <output>{$generation.overlap.toFixed(2)}</output></label>
+    <input id="overlap" type="range" min="0" max="3" step="0.05" bind:value={$generation.overlap} />
+    <p class="hint">Moves the sensor further along its path. Less shared geometry is a measured outcome, not a set percentage.</p>
+  </details>
+
+  <h2>Run</h2>
   <label for="reference">Reference</label>
   <select id="reference" bind:value={$referenceMode}>
     <option value="fixed">Fixed reference</option>
@@ -118,24 +123,26 @@
     Collect iteration trace
   </label>
 
-  <h2>Import scan pair</h2>
-  <p class="hint">Secondary action. Imported data has no ground truth.</p>
-  {#if $importMode}
-    <button class="wide" onclick={clearImport}>Show generated data</button>
-  {/if}
-  <textarea
-    bind:value={pairText}
-    rows="6"
-    spellcheck="false"
-    placeholder="Paste a csm-rs-scan-pair document"
-    aria-label="Scan pair JSON"
-  ></textarea>
-  <div class="row">
-    <button onclick={() => importPair(pairText)}>Load pair</button>
-    <button onclick={() => (pairText = JSON.stringify(samplePair(), null, 2))}>Sample</button>
-  </div>
+  <details class="advanced">
+    <summary>Data</summary>
+    <p class="hint">Secondary action. Imported data has no ground truth.</p>
+    {#if $importMode}
+      <button class="wide" onclick={clearImport}>Show generated data</button>
+    {/if}
+    <textarea
+      bind:value={pairText}
+      rows="6"
+      spellcheck="false"
+      placeholder="Paste a csm-rs-scan-pair document"
+      aria-label="Scan pair JSON"
+    ></textarea>
+    <div class="row">
+      <button onclick={() => importPair(pairText)}>Load pair</button>
+      <button onclick={() => (pairText = JSON.stringify(samplePair(), null, 2))}>Sample</button>
+    </div>
 
-  <ExperimentsPanel />
+    <ExperimentsPanel />
+  </details>
 </section>
 
 <style>
@@ -175,8 +182,26 @@
   }
 
   .example.active {
-    border-color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 16%, var(--surface-2));
+    border-color: var(--line-strong);
+    background: var(--surface-2);
+    font-weight: 600;
+  }
+
+  .advanced {
+    margin-top: 12px;
+    border-top: 1px solid var(--line);
+    padding-top: 8px;
+  }
+
+  .advanced summary {
+    font-size: 12px;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .advanced[open] summary {
+    margin-bottom: 4px;
+    color: var(--text);
   }
 
   .observe {

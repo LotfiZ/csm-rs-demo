@@ -244,8 +244,9 @@
   }
 
   .toggle.active {
-    border-color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 18%, var(--surface-2));
+    border-color: var(--line-strong);
+    background: var(--surface-2);
+    font-weight: 600;
   }
 
   .run {
