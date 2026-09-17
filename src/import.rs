@@ -227,8 +227,13 @@ pub fn export_session(request: &RunRequest) -> Result<SessionRecord, String> {
     let reference = scan_for(&scene, reference_pose, gen, 0);
     let sensor = scan_for(&scene, sensor_pose_world, gen, gen.step);
     let truth = relative_pose(reference_pose, sensor_pose_world);
-    let mut rng = guess_rng(gen.seed, gen.step);
-    let guess = initial_guess(truth, gen.initial_error, &mut rng);
+    let guess = match gen.initial_guess {
+        Some([x, y, theta]) => Pose::new(x, y, theta),
+        None => {
+            let mut rng = guess_rng(gen.seed, gen.step);
+            initial_guess(truth, gen.initial_error, &mut rng)
+        }
+    };
 
     let report = match_pair(
         prepare_frame(&reference)?,

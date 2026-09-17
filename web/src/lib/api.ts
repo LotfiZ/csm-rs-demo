@@ -7,6 +7,8 @@ export interface GenerationConfig {
   noise: number;
   dropout: number;
   initial_error: number;
+  /** Absolute starting pose set by dragging the scan; null uses `initial_error`. */
+  initial_guess?: [number, number, number] | null;
   ray_count: number;
   half_span: number;
   overlap: number;

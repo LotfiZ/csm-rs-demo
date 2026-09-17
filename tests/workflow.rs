@@ -57,6 +57,14 @@ async fn index_is_served() {
 }
 
 #[tokio::test]
+async fn explicit_initial_guess_is_used_verbatim() {
+    let mut request = base(4);
+    request["generation"]["initial_guess"] = json!([1.25, -0.5, 0.3]);
+    let response = post_frame(request).await;
+    assert_eq!(response.initial_pose, [1.25, -0.5, 0.3]);
+}
+
+#[tokio::test]
 async fn controls_change_real_inputs() {
     let baseline = post_frame(base(4)).await;
 
@@ -74,6 +82,10 @@ async fn controls_change_real_inputs() {
         post_frame(guessed).await.initial_pose,
         baseline.initial_pose
     );
+
+    let mut placed = base(4);
+    placed["generation"]["initial_guess"] = json!([0.4, -0.3, 0.05]);
+    assert_eq!(post_frame(placed).await.initial_pose, [0.4, -0.3, 0.05]);
 
     let mut dropped = base(4);
     dropped["generation"]["dropout"] = json!(0.6);

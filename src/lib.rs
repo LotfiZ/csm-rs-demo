@@ -149,6 +149,10 @@ struct PolicyState {
 }
 
 fn pair_guess(gen: &GenerationConfig, truth: Pose, step: u64) -> Pose {
+    // A handed-placed scan starts exactly where the user put it.
+    if let Some([x, y, theta]) = gen.initial_guess {
+        return Pose::new(x, y, theta);
+    }
     let mut rng = guess_rng(gen.seed, step);
     initial_guess(truth, gen.initial_error, &mut rng)
 }

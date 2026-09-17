@@ -266,8 +266,31 @@ export const view = derived(
 export function loadExample(id: string) {
   const example = exampleById(id);
   exampleId.set(example.id);
-  generation.set({ ...example.generation });
+  generation.set({ ...example.generation, initial_guess: null });
+  placed.set(false);
   // An example is a fresh problem: run it so the plot actually changes.
+  void run();
+}
+
+/** True while the scan can be dragged to set the initial guess by hand. */
+export const placing = writable(false);
+/** True once the scan has been placed by hand, so the UI can offer a reset. */
+export const placed = writable(false);
+
+export function setPlacing(value: boolean) {
+  placing.set(value);
+}
+
+/** Commit a hand-placed scan as the explicit initial guess and re-run. */
+export function placeScan(pose: [number, number, number]) {
+  generation.update((current) => ({ ...current, initial_guess: pose }));
+  placed.set(true);
+  void run();
+}
+
+export function resetPlacement() {
+  generation.update((current) => ({ ...current, initial_guess: null }));
+  placed.set(false);
   void run();
 }
 

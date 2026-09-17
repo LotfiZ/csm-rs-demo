@@ -41,6 +41,9 @@ cargo run --locked --release -- 0.0.0.0:8080
   correspondences, with instrumented timing reported separately.
 - Import of ordered polar/Cartesian scan pairs, versioned session export, and
   replay.
+- Place scan: turn on placement in the plot, drag the raw scan to move it and
+  shift-drag to rotate it, then release to re-run from where you put it. Reset
+  placement returns to the generated guess.
 
 The server is stateless: every `POST /api/frame` regenerates the seeded scans
 for the requested step and runs the matcher. Imported data has no ground truth,

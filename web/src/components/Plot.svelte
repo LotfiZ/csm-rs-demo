@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { activeFrame, layers, theme, traceIteration, view } from '../lib/state';
+  import { activeFrame, layers, placed, placeScan, placing, resetPlacement, setPlacing, theme, traceIteration, view } from '../lib/state';
 
   let wrap: HTMLDivElement;
   let canvas: HTMLCanvasElement;
@@ -14,6 +14,11 @@
   let dragging = false;
   let lastX = 0;
   let lastY = 0;
+
+  // Hand-placed scan: while dragging, this overrides the server's initial pose.
+  let scanDragging = false;
+  let rotating = false;
+  let dragPose = $state<[number, number, number] | null>(null);
 
   const extent = $derived($view?.extent ?? 7);
 
@@ -101,6 +106,15 @@
   }
 
   function onPointerDown(event: PointerEvent) {
+    if ($placing && $view?.initial_pose) {
+      scanDragging = true;
+      rotating = event.shiftKey;
+      dragPose = [...$view.initial_pose] as [number, number, number];
+      lastX = event.clientX;
+      lastY = event.clientY;
+      canvas.setPointerCapture(event.pointerId);
+      return;
+    }
     dragging = true;
     lastX = event.clientX;
     lastY = event.clientY;
@@ -108,6 +122,21 @@
   }
 
   function onPointerMove(event: PointerEvent) {
+    if (scanDragging && dragPose) {
+      if (rotating) {
+        dragPose = [dragPose[0], dragPose[1], dragPose[2] + (event.clientX - lastX) * 0.01];
+      } else {
+        const s = fitScale() * zoom;
+        dragPose = [
+          dragPose[0] + (event.clientX - lastX) / s,
+          dragPose[1] - (event.clientY - lastY) / s,
+          dragPose[2],
+        ];
+      }
+      lastX = event.clientX;
+      lastY = event.clientY;
+      return;
+    }
     if (!dragging) return;
     const s = fitScale() * zoom;
     panX -= (event.clientX - lastX) / s;
@@ -117,8 +146,34 @@
   }
 
   function onPointerUp(event: PointerEvent) {
+    if (scanDragging && dragPose) {
+      const pose = dragPose;
+      scanDragging = false;
+      dragPose = null;
+      canvas.releasePointerCapture(event.pointerId);
+      placeScan(pose);
+      return;
+    }
     dragging = false;
     canvas.releasePointerCapture(event.pointerId);
+  }
+
+  /** Move a cloud already placed at `base` so it sits at `pose` instead. */
+  function transformCloud(
+    points: [number, number][],
+    base: [number, number, number],
+    pose: [number, number, number],
+  ): [number, number][] {
+    const dtheta = pose[2] - base[2];
+    const cos = Math.cos(dtheta);
+    const sin = Math.sin(dtheta);
+    const dx = pose[0] - base[0];
+    const dy = pose[1] - base[1];
+    return points.map(([x, y]) => {
+      const rx = x - base[0];
+      const ry = y - base[1];
+      return [base[0] + cos * rx - sin * ry + dx, base[1] + sin * rx + cos * ry + dy];
+    });
   }
 
   function color(name: string): string {
@@ -213,15 +268,24 @@
     };
 
     if (visible.truth && data.sensor_true) cloud(data.sensor_true, color('--truth'), 0.9);
-    if (visible.unaligned) cloud(data.sensor_unaligned, color('--raw'), 0.75);
+    if (visible.unaligned) {
+      const shown =
+        dragPose && data.initial_pose
+          ? transformCloud(data.sensor_unaligned, data.initial_pose, dragPose)
+          : data.sensor_unaligned;
+      cloud(shown, color('--raw'), 0.75);
+    }
     if (visible.reference) cloud(data.reference, color('--ref'), 0.9);
-    if (visible.aligned && data.sensor_aligned) cloud(data.sensor_aligned, color('--aligned'), 0.95);
-    if (visible.alignedB && data.sensor_aligned_b)
+    if (visible.aligned && data.sensor_aligned && !dragPose)
+      cloud(data.sensor_aligned, color('--aligned'), 0.95);
+    if (visible.alignedB && data.sensor_aligned_b && !dragPose)
       cloud(data.sensor_aligned_b, color('--aligned-b'), 0.95);
 
     if (visible.truth && data.truth_pose) drawArrow(ctx, data.truth_pose, color('--truth'));
-    if (visible.unaligned) drawArrow(ctx, data.initial_pose, color('--raw'));
-    if (visible.aligned && data.estimated_pose) drawArrow(ctx, data.estimated_pose, color('--aligned'));
+    if (visible.unaligned && (dragPose ?? data.initial_pose))
+      drawArrow(ctx, (dragPose ?? data.initial_pose) as [number, number, number], color('--raw'));
+    if (visible.aligned && data.estimated_pose && !dragPose)
+      drawArrow(ctx, data.estimated_pose, color('--aligned'));
     if (visible.alignedB && data.estimated_pose_b)
       drawArrow(ctx, data.estimated_pose_b, color('--aligned-b'));
 
@@ -280,6 +344,8 @@
     void $traceIteration;
     void $layers;
     void $theme;
+    void $placing;
+    void $placed;
     void cssW;
     void cssH;
     void zoom;
@@ -303,6 +369,7 @@
     onpointerup={onPointerUp}
     ondblclick={resetView}
     onkeydown={onKey}
+    class:placing={$placing}
   ></canvas>
 
   <fieldset class="legend" aria-label="Scan layers">
@@ -314,6 +381,17 @@
     <label><input type="checkbox" bind:checked={$layers.truth} /> <i class="sw truth"></i>truth</label>
     <label><input type="checkbox" bind:checked={$layers.correspondences} /> correspondences</label>
     <button class="reset" onclick={resetView}>reset view</button>
+    <div class="place">
+      <button class:active={$placing} onclick={() => setPlacing(!$placing)}>
+        {$placing ? 'Placing scan' : 'Place scan'}
+      </button>
+      {#if $placed}
+        <button onclick={resetPlacement}>Reset placement</button>
+      {/if}
+    </div>
+    {#if $placing}
+      <p class="tip">Drag to move the scan, shift-drag to rotate. Release to re-run.</p>
+    {/if}
   </fieldset>
 </div>
 
@@ -385,5 +463,32 @@
     margin-top: 4px;
     font-size: 11px;
     padding: 2px 6px;
+  }
+
+  .place {
+    display: flex;
+    gap: 4px;
+    margin-top: 4px;
+  }
+
+  .place button {
+    font-size: 11px;
+    padding: 2px 6px;
+  }
+
+  .place button.active {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 20%, var(--surface-2));
+  }
+
+  .tip {
+    margin: 4px 0 0;
+    max-width: 190px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  canvas.placing {
+    cursor: crosshair;
   }
 </style>

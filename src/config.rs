@@ -22,6 +22,10 @@ pub struct GenerationConfig {
     pub dropout: f64,
     /// Magnitude of the initial-pose estimate error.
     pub initial_error: f64,
+    /// An absolute starting pose (world frame). When set, the matcher starts
+    /// exactly here and `initial_error` is ignored, so the scan can be placed
+    /// by hand.
+    pub initial_guess: Option<[f64; 3]>,
     /// Rays per scan. Higher resolution costs more per match.
     pub ray_count: usize,
     /// Half the angular span of the sensor, in radians.
@@ -42,6 +46,7 @@ impl Default for GenerationConfig {
             noise: 0.01,
             dropout: 0.0,
             initial_error: 0.05,
+            initial_guess: None,
             ray_count: 181,
             half_span: 2.2,
             overlap: 0.0,
@@ -74,10 +79,35 @@ impl GenerationConfig {
         if !self.initial_error.is_finite() || self.initial_error < 0.0 {
             return Err("initial guess error must be zero or more".to_owned());
         }
+        if let Some(guess) = self.initial_guess {
+            if !guess.iter().all(|value| value.is_finite()) {
+                return Err("initial guess must be finite".to_owned());
+            }
+        }
         if !self.overlap.is_finite() || self.overlap < 0.0 {
             return Err("overlap separation must be zero or more".to_owned());
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GenerationConfig;
+
+    #[test]
+    fn validate_rejects_non_finite_initial_guess() {
+        let config = GenerationConfig {
+            initial_guess: Some([0.0, f64::NAN, 0.0]),
+            ..GenerationConfig::default()
+        };
+        assert!(config.validate().is_err());
+
+        let placed = GenerationConfig {
+            initial_guess: Some([1.0, -2.0, 0.3]),
+            ..GenerationConfig::default()
+        };
+        assert!(placed.validate().is_ok());
     }
 }
 
