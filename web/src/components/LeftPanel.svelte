@@ -63,13 +63,6 @@
   <h2>Generation</h2>
   <p class="hint">Shapes the problem. Never the matcher.</p>
 
-  <label for="scenario">Scene</label>
-  <select id="scenario" bind:value={$generation.scenario}>
-    <option value="asymmetric_room">Asymmetric room</option>
-    <option value="ambiguous_corridor">Ambiguous corridor</option>
-    <option value="partial_overlap">Partial overlap</option>
-  </select>
-
   <label for="seed">Seed</label>
   <input id="seed" type="number" min="0" step="1" bind:value={$generation.seed} />
 

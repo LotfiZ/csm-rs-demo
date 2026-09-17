@@ -33,9 +33,44 @@
   }
 
   function resetView() {
-    panX = 0;
-    panY = 0;
-    zoom = 1;
+    const data = $view;
+    if (!data) {
+      panX = 0;
+      panY = 0;
+      zoom = 1;
+      return;
+    }
+    // Fit the drawn data, not a fixed centre: panning away then resetting
+    // must always bring the scan back into frame.
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (const cloud of [
+      data.reference,
+      data.sensor_unaligned,
+      data.sensor_aligned,
+      data.sensor_aligned_b,
+      data.sensor_true,
+    ]) {
+      if (!cloud) continue;
+      for (const [x, y] of cloud) {
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+      }
+    }
+    if (!Number.isFinite(minX)) {
+      panX = 0;
+      panY = 0;
+      zoom = 1;
+      return;
+    }
+    const span = Math.max(maxX - minX, maxY - minY) || 1;
+    zoom = Math.min(40, Math.max(0.2, Math.min(cssW, cssH) / (span * 1.25) / fitScale()));
+    panX = (minX + maxX) / 2;
+    panY = (minY + maxY) / 2;
   }
 
   /** Keyboard pan and zoom, so the plot is not mouse-only. */

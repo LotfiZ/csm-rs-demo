@@ -267,6 +267,8 @@ export function loadExample(id: string) {
   const example = exampleById(id);
   exampleId.set(example.id);
   generation.set({ ...example.generation });
+  // An example is a fresh problem: run it so the plot actually changes.
+  void run();
 }
 
 export function setAbMode(value: boolean) {

@@ -272,7 +272,7 @@
 
   .side {
     min-height: 0;
-    overflow: hidden;
+    overflow-y: auto;
   }
 
   .plot-cell {
