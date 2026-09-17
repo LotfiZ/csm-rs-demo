@@ -19,8 +19,8 @@ pub use import::ImportResponse;
 use import::{export_session, replay_session, run_import, ScanPair};
 use scene::Scene;
 use simulation::{
-    guess_rng, initial_guess, pose_at, relative_pose, scan_for, sensor_pose as sensor_pose_at,
-    ScanFrame, SessionRecord,
+    accumulated_truth, guess_rng, initial_guess, pose_at, relative_pose, scan_for,
+    sensor_pose as sensor_pose_at, ScanFrame, SessionRecord,
 };
 
 /// Build the demo router (shared by the server and the workflow tests).
@@ -185,10 +185,42 @@ fn fixed_policy(scene: &Scene, request: &RunRequest) -> Result<PolicyState, Stri
 fn previous_frame_policy(scene: &Scene, request: &RunRequest) -> Result<PolicyState, String> {
     let gen = &request.generation;
     gen.validate()?;
-    let mut accumulated = Pose::IDENTITY;
-    let mut total_truth = Pose::IDENTITY;
-    let mut state = None;
     let steps = gen.step.max(1);
+    let total_truth = accumulated_truth(gen, steps);
+
+    // Incremental: a supplied prior means only this pair is matched, so an
+    // already-computed sequence is never rebuilt to inspect one frame.
+    if let Some(prior) = request.prior_estimate {
+        let (reference, sensor, relative_truth, guess) = step_scans(scene, gen, steps);
+        let report = match_pair(
+            prepare_frame(&reference)?,
+            prepare_frame(&sensor)?,
+            guess,
+            &request.matcher,
+            false,
+        )?;
+        let relative_estimate = Pose::from_array(report.estimated_pose);
+        let prior = Pose::from_array(prior);
+        // A rejected match must never advance the trajectory.
+        let estimate = if report.accepted {
+            prior.compose(relative_estimate)
+        } else {
+            prior
+        };
+        return Ok(PolicyState {
+            reference,
+            sensor,
+            guess,
+            estimate,
+            total_truth,
+            relative_truth,
+            relative_estimate,
+            report,
+        });
+    }
+
+    let mut accumulated = Pose::IDENTITY;
+    let mut state = None;
     for s in 1..=steps {
         let (reference, sensor, relative_truth, guess) = step_scans(scene, gen, s);
         let report = match_pair(
@@ -199,8 +231,9 @@ fn previous_frame_policy(scene: &Scene, request: &RunRequest) -> Result<PolicySt
             false,
         )?;
         let relative_estimate = Pose::from_array(report.estimated_pose);
-        accumulated = accumulated.compose(relative_estimate);
-        total_truth = total_truth.compose(relative_truth);
+        if report.accepted {
+            accumulated = accumulated.compose(relative_estimate);
+        }
         state = Some(PolicyState {
             reference,
             sensor,

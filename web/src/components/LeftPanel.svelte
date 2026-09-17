@@ -1,6 +1,6 @@
 <script lang="ts">
   import { EXAMPLE_LIST, exampleById } from '../lib/examples';
-  import { exampleId, generation, loadExample, referenceMode, trace } from '../lib/state';
+  import { exampleId, generation, loadExample, referenceMode, sequenceMode, trace } from '../lib/state';
 
   const selected = $derived(exampleById($exampleId));
 
@@ -41,7 +41,7 @@
   <label for="seed">Seed</label>
   <input id="seed" type="number" min="0" step="1" bind:value={$generation.seed} />
 
-  <label for="step">Frame step <output>{$generation.step}</output></label>
+  <label for="step">{$sequenceMode ? 'Frames' : 'Frame step'} <output>{$generation.step}</output></label>
   <input id="step" type="range" min="0" max="24" step="1" bind:value={$generation.step} />
 
   <label for="motion">Motion scale <output>{$generation.motion.toFixed(2)}</output></label>

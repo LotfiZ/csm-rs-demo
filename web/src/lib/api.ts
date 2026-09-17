@@ -48,6 +48,8 @@ export interface RunRequest {
   generation: GenerationConfig;
   matcher: MatcherConfig;
   reference_mode: string;
+  /** Accumulated estimate carried into an incremental previous-frame step. */
+  prior_estimate?: [number, number, number] | null;
   trace: boolean;
   request_id: number;
 }

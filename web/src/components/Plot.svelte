@@ -94,6 +94,21 @@
     ctx.fill();
   }
 
+  function drawPath(ctx: CanvasRenderingContext2D, points: [number, number][], stroke: string) {
+    if (points.length < 2) return;
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.8;
+    ctx.beginPath();
+    points.forEach(([x, y], index) => {
+      const [sx, sy] = toScreen(x, y);
+      if (index === 0) ctx.moveTo(sx, sy);
+      else ctx.lineTo(sx, sy);
+    });
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
   function draw() {
     if (!canvas || cssW === 0 || cssH === 0) return;
     const dpr = window.devicePixelRatio || 1;
@@ -159,6 +174,20 @@
     if (visible.aligned && data.estimated_pose) drawArrow(ctx, data.estimated_pose, color('--aligned'));
     if (visible.alignedB && data.estimated_pose_b)
       drawArrow(ctx, data.estimated_pose_b, color('--aligned-b'));
+
+    // Sequence trajectories: truth and the estimate actually travelled.
+    if (data.trajectory_true) drawPath(ctx, data.trajectory_true, color('--truth'));
+    if (data.trajectory_estimate) drawPath(ctx, data.trajectory_estimate, color('--aligned'));
+
+    // A rejected update is marked, never drawn as a successful move.
+    if (data.rejected && data.estimated_pose) {
+      const [sx, sy] = toScreen(data.estimated_pose[0], data.estimated_pose[1]);
+      ctx.strokeStyle = color('--danger');
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 9, 0, Math.PI * 2);
+      ctx.stroke();
+    }
   }
 
   onMount(() => {

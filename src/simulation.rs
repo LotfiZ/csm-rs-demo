@@ -157,6 +157,24 @@ pub fn sensor_pose(config: &GenerationConfig, reference: Pose, step: u64) -> Pos
     separated_pose(reference, sensor, config.overlap)
 }
 
+/// True relative pose for one previous-frame transition.
+pub fn step_truth(config: &GenerationConfig, step: u64) -> Pose {
+    let previous = pose_at(&config.scenario, step.saturating_sub(1), config.motion);
+    let current = sensor_pose(config, previous, step);
+    relative_pose(previous, current)
+}
+
+/// Accumulated true motion over `steps` previous-frame transitions.
+///
+/// Truth never depends on matching, so this is cheap to recompute.
+pub fn accumulated_truth(config: &GenerationConfig, steps: u64) -> Pose {
+    let mut total = Pose::IDENTITY;
+    for step in 1..=steps {
+        total = total.compose(step_truth(config, step));
+    }
+    total
+}
+
 /// A perturbed initial guess for the matcher.
 pub fn initial_guess(truth: Pose, error: f64, rng: &mut Rng) -> Pose {
     if error <= 0.0 {

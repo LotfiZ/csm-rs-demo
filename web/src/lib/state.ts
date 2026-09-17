@@ -24,6 +24,7 @@ export const referenceMode = writable('fixed');
 export const trace = writable(false);
 
 export const abMode = writable(false);
+export const sequenceMode = writable(false);
 export const matcher = writable<MatcherConfig>({ ...DEFAULT_MATCHER });
 export const matcherB = writable<MatcherConfig>({ ...DEFAULT_MATCHER });
 export const editingSide = writable<Side>('A');
@@ -43,6 +44,18 @@ export const compare = writable<CompareResponse | null>(null);
 export const preview = writable<PreviewResponse | null>(null);
 export const running = writable(false);
 export const error = writable<string | null>(null);
+
+export interface SequenceState {
+  frames: FrameResponse[];
+  referenceMode: string;
+  truth: [number, number][];
+  estimate: [number, number][];
+}
+
+export const sequence = writable<SequenceState | null>(null);
+export const sequenceIndex = writable(0);
+export const sequenceProgress = writable<{ done: number; total: number } | null>(null);
+export const playing = writable(false);
 
 /** Monotonic id; the response carries it back so stale replies can be dropped. */
 const requestId = writable(0);
@@ -70,6 +83,15 @@ function activeKey(): string {
     get(abMode) ? get(matcherB) : null,
   ]);
 }
+
+/** The frame whose pair diagnostics are shown: sequence, or the single result. */
+export const activeFrame = derived(
+  [result, sequence, sequenceIndex, sequenceMode],
+  ([$result, $sequence, $index, $sequenceMode]) => {
+    if ($sequenceMode && $sequence) return $sequence.frames[$index] ?? null;
+    return $result;
+  },
+);
 
 /** True when the displayed result no longer matches the current inputs. */
 export const outdated = derived(
@@ -104,11 +126,44 @@ export interface ViewData {
   initial_pose: [number, number, number];
   extent: number;
   segments: [[number, number], [number, number]][];
+  trajectory_true?: [number, number][];
+  trajectory_estimate?: [number, number][];
+  rejected?: boolean;
 }
 
 export const view = derived(
-  [result, compare, preview, outdated, abMode],
-  ([$result, $compare, $preview, $outdated, $ab]): ViewData | null => {
+  [result, compare, preview, outdated, abMode, sequenceMode, sequence, sequenceIndex],
+  (
+    [
+      $result,
+      $compare,
+      $preview,
+      $outdated,
+      $ab,
+      $sequenceMode,
+      $sequence,
+      $index,
+    ],
+  ): ViewData | null => {
+    if ($sequenceMode && $sequence && !$outdated) {
+      const frame = $sequence.frames[$index];
+      if (frame) {
+        return {
+          reference: frame.reference,
+          sensor_unaligned: frame.sensor_unaligned,
+          sensor_true: frame.sensor_true,
+          sensor_aligned: frame.sensor_aligned,
+          estimated_pose: frame.estimated_pose,
+          truth_pose: frame.truth_pose,
+          initial_pose: frame.initial_pose,
+          extent: frame.extent,
+          segments: frame.segments,
+          trajectory_true: $sequence.truth,
+          trajectory_estimate: $sequence.estimate,
+          rejected: !frame.accepted,
+        };
+      }
+    }
     if ($ab && $compare && !$outdated) {
       return {
         reference: $compare.shared.reference,
@@ -124,7 +179,7 @@ export const view = derived(
         estimated_pose_b: $compare.b.estimated_pose,
       };
     }
-    if (!$ab && $result && !$outdated) return $result as ViewData;
+    if (!$ab && !$sequenceMode && $result && !$outdated) return $result as ViewData;
     return ($preview as ViewData | null) ?? ($result as ViewData | null);
   },
 );
@@ -137,10 +192,20 @@ export function loadExample(id: string) {
 
 export function setAbMode(value: boolean) {
   abMode.set(value);
-  if (value) editingSide.set('A');
+  if (value) {
+    sequenceMode.set(false);
+    editingSide.set('A');
+  }
+}
+
+export function setSequenceMode(value: boolean) {
+  sequenceMode.set(value);
+  pauseSequence();
+  if (value) setAbMode(false);
 }
 
 export async function run() {
+  if (get(sequenceMode)) return runSequence();
   if (get(issues).length > 0) {
     error.set('Fix the invalid matcher settings before running.');
     return;
@@ -186,7 +251,6 @@ export async function run() {
 }
 
 let previewTimer: ReturnType<typeof setTimeout> | undefined;
-
 /** Regenerate the scene preview without running the matcher. */
 export async function refreshPreview() {
   try {
@@ -208,6 +272,110 @@ function schedulePreview() {
 // Any change to the generated problem refreshes the preview immediately.
 generation.subscribe(schedulePreview);
 referenceMode.subscribe(schedulePreview);
+
+// --- Sequence execution and playback -------------------------------------
+
+let sequenceCancelled = false;
+let playbackTimer: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * Run frames 1..step one at a time. Each previous-frame step carries its own
+ * accumulated estimate forward, so no prefix is ever recomputed, and stopping
+ * the loop is instant cancellation.
+ */
+export async function runSequence() {
+  if (get(issues).length > 0) {
+    error.set('Fix the invalid matcher settings before running.');
+    return;
+  }
+  pauseSequence();
+  const total = Math.max(1, get(generation).step);
+  const mode = get(referenceMode);
+  sequenceCancelled = false;
+  running.set(true);
+  error.set(null);
+  sequenceProgress.set({ done: 0, total });
+  resultKey.set(activeKey());
+
+  const frames: FrameResponse[] = [];
+  const truth: [number, number][] = [];
+  const estimate: [number, number][] = [];
+  let prior: [number, number, number] | null = mode === 'previous_frame' ? [0, 0, 0] : null;
+
+  try {
+    for (let step = 1; step <= total; step += 1) {
+      if (sequenceCancelled) break;
+      const response = await runFrame({
+        generation: { ...get(generation), step },
+        matcher: get(matcher),
+        reference_mode: mode,
+        prior_estimate: prior,
+        trace: false,
+        request_id: step,
+      });
+      frames.push(response);
+      truth.push([response.truth_pose[0], response.truth_pose[1]]);
+      estimate.push([response.estimated_pose[0], response.estimated_pose[1]]);
+      if (mode === 'previous_frame') prior = response.estimated_pose;
+      sequenceProgress.set({ done: step, total });
+    }
+    if (!sequenceCancelled) {
+      sequence.set({ frames, referenceMode: mode, truth, estimate });
+      sequenceIndex.set(0);
+      result.set(null);
+      compare.set(null);
+    }
+  } catch (cause) {
+    if (!sequenceCancelled) error.set(cause instanceof Error ? cause.message : String(cause));
+  } finally {
+    running.set(false);
+    sequenceProgress.set(null);
+  }
+}
+
+export function cancelSequence() {
+  sequenceCancelled = true;
+}
+
+export function pauseSequence() {
+  if (playbackTimer) {
+    clearTimeout(playbackTimer);
+    playbackTimer = undefined;
+  }
+  playing.set(false);
+}
+
+export function playSequence() {
+  if (playbackTimer) return;
+  playing.set(true);
+  const tick = () => {
+    const current = get(sequence);
+    if (!current) {
+      pauseSequence();
+      return;
+    }
+    const next = get(sequenceIndex) + 1;
+    if (next >= current.frames.length) {
+      pauseSequence();
+      return;
+    }
+    sequenceIndex.set(next);
+    playbackTimer = setTimeout(tick, 400);
+  };
+  playbackTimer = setTimeout(tick, 250);
+}
+
+export function stepSequence(delta: number) {
+  const current = get(sequence);
+  if (!current) return;
+  const next = Math.min(current.frames.length - 1, Math.max(0, get(sequenceIndex) + delta));
+  sequenceIndex.set(next);
+}
+
+export function resetSequence() {
+  pauseSequence();
+  sequenceIndex.set(0);
+}
 
 export const theme = writable<Theme>('dark');
 

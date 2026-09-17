@@ -3,7 +3,8 @@
   import LeftPanel from './components/LeftPanel.svelte';
   import MatcherPanel from './components/MatcherPanel.svelte';
   import Plot from './components/Plot.svelte';
-  import { error, initTheme, issues, outdated, run, running, theme, toggleTheme, abMode, setAbMode, matcher, matcherB, editingSide } from './lib/state';
+  import SequenceBar from './components/SequenceBar.svelte';
+  import { error, initTheme, issues, outdated, run, running, theme, toggleTheme, abMode, setAbMode, sequenceMode, setSequenceMode, matcher, matcherB, editingSide } from './lib/state';
   import { onMount } from 'svelte';
 
   onMount(() => {
@@ -34,11 +35,19 @@
     >
       A/B
     </button>
+    <button
+      class="ab"
+      class:active={$sequenceMode}
+      aria-pressed={$sequenceMode}
+      onclick={() => setSequenceMode(!$sequenceMode)}
+    >
+      Sequence
+    </button>
     <button class="theme" onclick={toggleTheme} aria-label="Toggle theme">
       {$theme === 'dark' ? 'Light' : 'Dark'}
     </button>
     <button class="run" onclick={run} disabled={$running || $issues.length > 0}>
-      {$running ? 'Running…' : $abMode ? 'Run A/B' : 'Run match'}
+      {$running ? 'Running…' : $abMode ? 'Run A/B' : $sequenceMode ? 'Run sequence' : 'Run match'}
     </button>
   </header>
 
@@ -52,13 +61,16 @@
     <MatcherPanel target={$abMode && $editingSide === 'B' ? matcherB : matcher} />
   </div>
 
-  <BottomPanel />
+  <div class="bottom-area">
+    {#if $sequenceMode}<SequenceBar />{/if}
+    <BottomPanel />
+  </div>
 </div>
 
 <style>
   .app {
-    display: grid;
-    grid-template-rows: auto auto 1fr auto;
+    display: flex;
+    flex-direction: column;
     height: 100vh;
     min-height: 0;
   }
@@ -117,7 +129,12 @@
     font-size: 13px;
   }
 
+  .bottom-area {
+    flex: 0 0 auto;
+  }
+
   .body {
+    flex: 1;
     display: grid;
     grid-template-columns: 264px minmax(0, 1fr) 264px;
     min-height: 0;

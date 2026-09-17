@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { matcher, matcherB, abMode, compare, diagnosticsOpen, result, view } from '../lib/state';
+  import { activeFrame, matcher, matcherB, abMode, compare, diagnosticsOpen, view } from '../lib/state';
   import { matcherDiff } from '../lib/matcherFields';
   import type { CompareSide } from '../lib/api';
 
@@ -25,7 +25,7 @@
   }
 
   const pairErrors = $derived.by(() => {
-    const data = $result;
+    const data = $activeFrame;
     if (!data) return null;
     const dx = data.relative_truth_pose[0] - data.relative_estimated_pose[0];
     const dy = data.relative_truth_pose[1] - data.relative_estimated_pose[1];
@@ -38,7 +38,7 @@
   });
 
   const status = $derived.by(() => {
-    const data = $result;
+    const data = $activeFrame;
     if (!data) return { label: 'no result', tone: 'muted' as const };
     if (data.accepted) return { label: 'accepted', tone: 'ok' as const };
     if (data.valid) return { label: 'valid candidate', tone: 'warn' as const };
@@ -158,11 +158,11 @@
       </div>
       <div class="metric">
         <span class="k">termination</span>
-        <span class="v mono">{$result?.termination ?? '—'}</span>
+        <span class="v mono">{$activeFrame?.termination ?? '—'}</span>
       </div>
       <div class="metric">
         <span class="k">runtime</span>
-        <span class="v mono">{$result ? $result.normal_ms.toFixed(3) : '—'} <em>ms</em></span>
+        <span class="v mono">{$activeFrame ? $activeFrame.normal_ms.toFixed(3) : '—'} <em>ms</em></span>
       </div>
       <button class="toggle" onclick={() => diagnosticsOpen.update((open) => !open)}>
         {diagnosticsOpen ? 'hide diagnostics' : 'show diagnostics'}
@@ -173,19 +173,19 @@
       <div class="diagnostics">
         <div class="metric">
           <span class="k">iterations</span>
-          <span class="v mono">{$result?.iterations ?? '—'}</span>
+          <span class="v mono">{$activeFrame?.iterations ?? '—'}</span>
         </div>
         <div class="metric">
           <span class="k">correspondences</span>
-          <span class="v mono">{$result?.nvalid ?? '—'}</span>
+          <span class="v mono">{$activeFrame?.nvalid ?? '—'}</span>
         </div>
         <div class="metric">
           <span class="k">fitting error</span>
-          <span class="v mono">{$result ? $result.error.toFixed(4) : '—'}</span>
+          <span class="v mono">{$activeFrame ? $activeFrame.error.toFixed(4) : '—'}</span>
         </div>
         <div class="metric">
           <span class="k">uncertainty</span>
-          <span class="v mono">{$result?.covariance_status ?? '—'}</span>
+          <span class="v mono">{$activeFrame?.covariance_status ?? '—'}</span>
         </div>
         <div class="metric">
           <span class="k">overlap (measured)</span>
@@ -193,7 +193,7 @@
         </div>
         <div class="metric">
           <span class="k">reference</span>
-          <span class="v mono">{$result?.reference_mode ?? '—'}</span>
+          <span class="v mono">{$activeFrame?.reference_mode ?? '—'}</span>
         </div>
       </div>
       <p class="note">

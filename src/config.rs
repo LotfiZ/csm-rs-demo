@@ -90,6 +90,9 @@ pub struct RunRequest {
     pub matcher: MatcherConfig,
     /// Reference policy: `"fixed"` or `"previous_frame"`.
     pub reference_mode: String,
+    /// Accumulated estimate carried into this step, for incremental
+    /// previous-frame sequences. `None` rebuilds the prefix from frame 1.
+    pub prior_estimate: Option<[f64; 3]>,
     /// Whether to collect per-iteration instrumentation.
     pub trace: bool,
     pub request_id: u64,
@@ -101,6 +104,7 @@ impl Default for RunRequest {
             generation: GenerationConfig::default(),
             matcher: MatcherConfig::default(),
             reference_mode: "fixed".to_owned(),
+            prior_estimate: None,
             trace: false,
             request_id: 0,
         }

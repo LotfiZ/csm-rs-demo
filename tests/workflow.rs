@@ -424,6 +424,47 @@ async fn a_b_with_identical_parameters_agree() {
     assert_eq!(value["a"]["sensor_aligned"], value["b"]["sensor_aligned"]);
 }
 
+#[tokio::test]
+async fn sequence_step_uses_supplied_prior_without_recomputing() {
+    // A step that is given its prior accumulation must use it, not rebuild the
+    // whole prefix from frame 1.
+    let mut step_body = base(2);
+    step_body["reference_mode"] = json!("previous_frame");
+    step_body["prior_estimate"] = json!([5.0, -3.0, 0.4]);
+    let step = post_frame(step_body).await;
+
+    let mut full_body = base(2);
+    full_body["reference_mode"] = json!("previous_frame");
+    let full = post_frame(full_body).await;
+
+    assert!(step.accepted, "{}", step.termination);
+    // Prior is honoured, so the accumulated result differs from a full rebuild.
+    assert_ne!(step.estimated_pose, full.estimated_pose);
+    // But the pair itself is unchanged: only the accumulation differs.
+    for (a, b) in step
+        .relative_estimated_pose
+        .iter()
+        .zip(full.relative_estimated_pose)
+    {
+        assert!((a - b).abs() < 1e-9, "pair estimate changed: {a} != {b}");
+    }
+}
+
+#[tokio::test]
+async fn rejected_sequence_update_does_not_advance_the_trajectory() {
+    let mut body = base(2);
+    body["reference_mode"] = json!("previous_frame");
+    body["prior_estimate"] = json!([1.0, 2.0, 0.3]);
+    body["matcher"]["max_correspondence_dist"] = json!(0.0001);
+    let response = post_frame(body).await;
+    assert!(!response.accepted);
+    assert_eq!(
+        response.estimated_pose,
+        [1.0, 2.0, 0.3],
+        "a rejected match must not move the accumulated estimate"
+    );
+}
+
 async fn post_raw(path: &str, body: serde_json::Value) -> (u16, String) {
     let request = axum::http::Request::builder()
         .method("POST")
