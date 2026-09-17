@@ -53,7 +53,7 @@ async fn index_is_served() {
     let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
-    assert!(String::from_utf8_lossy(&bytes).contains("csm-rs local demo"));
+    assert!(String::from_utf8_lossy(&bytes).contains("csm-rs workbench"));
 }
 
 #[tokio::test]
@@ -267,7 +267,10 @@ async fn every_matcher_field_is_accepted_through_the_shared_mapping() {
 async fn iteration_tracing_is_opt_in_and_agrees_with_plain_matching() {
     let plain = post_frame(base(4)).await;
     assert!(plain.trace.is_none(), "tracing must be opt-in");
-    assert_eq!(plain.normal_ms, 0.0);
+    assert!(
+        plain.normal_ms > 0.0,
+        "ordinary runtime is reported without tracing"
+    );
     assert_eq!(plain.instrumented_ms, 0.0);
 
     let mut traced_config = base(4);

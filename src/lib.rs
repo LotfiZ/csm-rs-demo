@@ -7,12 +7,10 @@ mod import;
 mod scene;
 mod simulation;
 
-use axum::{
-    routing::{get, post},
-    Json, Router,
-};
+use axum::{routing::post, Json, Router};
 use csm_rs::Pose;
 use serde::{Deserialize, Serialize};
+use tower_http::services::ServeDir;
 
 use axum::http::StatusCode;
 use config::RunRequest;
@@ -24,16 +22,17 @@ use simulation::{
     guess_rng, initial_guess, pose_at, relative_pose, scan_for, ScanFrame, SessionRecord,
 };
 
-const INDEX_HTML: &str = include_str!("../web/index.html");
-
 /// Build the demo router (shared by the server and the workflow tests).
+///
+/// The API routes are served directly; everything else falls through to the
+/// built frontend in `web/dist` (see `web/`).
 pub fn app() -> Router {
     Router::new()
-        .route("/", get(index))
         .route("/api/frame", post(frame))
         .route("/api/import", post(import))
         .route("/api/replay", post(replay))
         .route("/api/export", post(export))
+        .fallback_service(ServeDir::new("web/dist"))
 }
 
 async fn import(Json(pair): Json<ScanPair>) -> Result<Json<ImportResponse>, (StatusCode, String)> {
@@ -56,10 +55,6 @@ async fn export(
     export_session(&request)
         .map(Json)
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))
-}
-
-pub async fn index() -> axum::response::Html<&'static str> {
-    axum::response::Html(INDEX_HTML)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -205,7 +200,9 @@ pub fn run_frame(request: &RunRequest) -> Result<FrameResponse, String> {
         pose_at(&gen.scenario, gen.step, gen.motion),
     );
     let drift = total_truth.inverse().compose(state.estimate);
-    let (trace, normal_ms, instrumented_ms) = if request.trace {
+    // Ordinary runtime is the uninstrumented pair match behind the result;
+    // the traced duration is only meaningful when tracing was requested.
+    let (trace, instrumented_ms) = if request.trace {
         let traced = match_pair(
             prepare_frame(&state.reference)?,
             prepare_frame(&state.sensor)?,
@@ -213,9 +210,9 @@ pub fn run_frame(request: &RunRequest) -> Result<FrameResponse, String> {
             &request.matcher,
             true,
         )?;
-        (traced.trace, traced.normal_ms, traced.instrumented_ms)
+        (traced.trace, traced.instrumented_ms)
     } else {
-        (None, 0.0, 0.0)
+        (None, 0.0)
     };
     let report = &state.report;
 
@@ -238,7 +235,7 @@ pub fn run_frame(request: &RunRequest) -> Result<FrameResponse, String> {
         error: report.error,
         covariance_status: report.covariance_status.clone(),
         trace,
-        normal_ms,
+        normal_ms: report.normal_ms,
         instrumented_ms,
         reference: world_points(&state.reference, Pose::IDENTITY),
         sensor_unaligned: world_points(&state.sensor, state.guess),
