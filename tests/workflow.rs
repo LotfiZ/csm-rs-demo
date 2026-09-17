@@ -305,6 +305,25 @@ async fn iteration_tracing_is_opt_in_and_agrees_with_plain_matching() {
     assert_eq!(traced.termination, plain.termination);
 }
 
+#[tokio::test]
+async fn newly_exposed_reading_bounds_change_results() {
+    // Default: a clean frame matches.
+    assert!(post_frame(base(4)).await.valid);
+
+    // Clipping every reading as out of range leaves no geometry to match.
+    let mut clipped = base(4);
+    clipped["matcher"]["reading_max"] = json!(0.5);
+    assert!(!post_frame(clipped).await.valid);
+
+    // The same setting changes imported results through the shared mapping.
+    let mut pair = sample_pair();
+    pair["config"] = json!({ "reading_max": 0.5 });
+    let (status, body) = post_raw("/api/import", pair).await;
+    assert_eq!(status, 200, "{body}");
+    let report: csm_rs_demo::ImportResponse = serde_json::from_str(&body).unwrap();
+    assert!(!report.valid, "clipped imported scans should not match");
+}
+
 async fn post_raw(path: &str, body: serde_json::Value) -> (u16, String) {
     let request = axum::http::Request::builder()
         .method("POST")

@@ -8,14 +8,19 @@ import {
   type RunRequest,
 } from './api';
 import { exampleById, EXAMPLE_LIST } from './examples';
+import { matcherIssues } from './matcherFields';
 
 export type Theme = 'light' | 'dark';
 
 export const exampleId = writable(EXAMPLE_LIST[0].id);
 export const generation = writable<GenerationConfig>({ ...EXAMPLE_LIST[0].generation });
 export const matcher = writable<MatcherConfig>({ ...DEFAULT_MATCHER });
+export const matcherPreset = writable('');
 export const referenceMode = writable('fixed');
 export const trace = writable(false);
+
+/** Plain-language validation mirroring the library. */
+export const issues = derived(matcher, (value) => matcherIssues(value));
 
 export const result = writable<FrameResponse | null>(null);
 export const running = writable(false);
@@ -69,6 +74,10 @@ export function loadExample(id: string) {
 }
 
 export async function run() {
+  if (get(issues).length > 0) {
+    error.set('Fix the invalid matcher settings before running.');
+    return;
+  }
   const id = get(requestId) + 1;
   requestId.set(id);
   running.set(true);

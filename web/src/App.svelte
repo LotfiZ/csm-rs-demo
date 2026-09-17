@@ -3,7 +3,7 @@
   import LeftPanel from './components/LeftPanel.svelte';
   import MatcherPanel from './components/MatcherPanel.svelte';
   import Plot from './components/Plot.svelte';
-  import { error, initTheme, outdated, run, running, theme, toggleTheme } from './lib/state';
+  import { error, initTheme, issues, outdated, run, running, theme, toggleTheme } from './lib/state';
   import { onMount } from 'svelte';
 
   onMount(() => {
@@ -27,7 +27,7 @@
     <button class="theme" onclick={toggleTheme} aria-label="Toggle theme">
       {$theme === 'dark' ? 'Light' : 'Dark'}
     </button>
-    <button class="run" onclick={run} disabled={$running}>
+    <button class="run" onclick={run} disabled={$running || $issues.length > 0}>
       {$running ? 'Running…' : 'Run match'}
     </button>
   </header>

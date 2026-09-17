@@ -1,48 +1,142 @@
 <script lang="ts">
+  import {
+    applyPreset,
+    MATCHER_GROUPS,
+    PRESETS,
+    type FieldGroup,
+    type FieldKey,
+    type FieldSpec,
+  } from '../lib/matcherFields';
   import { DEFAULT_MATCHER } from '../lib/api';
-  import { matcher } from '../lib/state';
+  import { issues, matcher, matcherPreset } from '../lib/state';
 
-  function reset() {
-    matcher.set({ ...DEFAULT_MATCHER });
+  const invalid = $derived($issues.length > 0);
+
+  function setField(key: FieldKey, value: unknown) {
+    matcher.update((current) => ({ ...current, [key]: value }));
+  }
+
+  function resetGroup(group: FieldGroup) {
+    matcher.update((current) => {
+      const next = { ...current };
+      const writable = next as unknown as Record<string, unknown>;
+      for (const field of group.fields) writable[field.key] = DEFAULT_MATCHER[field.key];
+      return next;
+    });
+  }
+
+  function applyPresetId(id: string) {
+    const preset = PRESETS.find((candidate) => candidate.id === id);
+    if (preset) matcher.set(applyPreset(preset));
+    matcherPreset.set('');
+  }
+
+  function defaultValue(key: FieldKey): string {
+    const value = DEFAULT_MATCHER[key];
+    if (typeof value === 'number') return String(Number(value.toPrecision(4)));
+    return String(value);
+  }
+
+  function numberValue(field: FieldSpec): number {
+    return $matcher[field.key] as number;
+  }
+
+  function stringValue(field: FieldSpec): string {
+    return $matcher[field.key] as string;
+  }
+
+  function boolValue(field: FieldSpec): boolean {
+    return $matcher[field.key] as boolean;
   }
 </script>
 
 <section class="panel">
   <header>
     <h2>Matcher</h2>
-    <button class="reset" onclick={reset}>reset</button>
+    <button class="reset" onclick={() => matcher.set({ ...DEFAULT_MATCHER })}>reset all</button>
   </header>
-  <p class="hint">Changes the algorithm. Same for generated and imported scans.</p>
+  <p class="hint">Changes the algorithm, not the problem. Generated and imported scans use the same settings.</p>
 
-  <label for="search">Search</label>
-  <select id="search" bind:value={$matcher.search}>
-    <option value="tricks">Tricks</option>
-    <option value="naive">Naive</option>
+  <label for="preset">Preset</label>
+  <select id="preset" bind:value={$matcherPreset} onchange={(e) => applyPresetId(e.currentTarget.value)}>
+    <option value="">Choose a preset…</option>
+    {#each PRESETS as preset (preset.id)}
+      <option value={preset.id}>{preset.name}</option>
+    {/each}
   </select>
 
-  <label for="metric">Distance metric</label>
-  <select id="metric" bind:value={$matcher.metric}>
-    <option value="point_to_line">Point to line</option>
-    <option value="point_to_point">Point to point</option>
-  </select>
+  {#if invalid}
+    <div class="issues" role="alert">
+      <strong>Fix before running:</strong>
+      <ul>
+        {#each $issues as issue (issue)}
+          <li>{issue}</li>
+        {/each}
+      </ul>
+    </div>
+  {/if}
 
-  <label for="maxdist">Max correspondence, m</label>
-  <input id="maxdist" type="number" min="0" step="0.1" bind:value={$matcher.max_correspondence_dist} />
+  {#each MATCHER_GROUPS as group (group.id)}
+    <details open={group.open} class="group">
+      <summary>
+        <span>{group.title}</span>
+        <button
+          class="reset"
+          onclick={(event) => {
+            event.preventDefault();
+            resetGroup(group);
+          }}
+        >
+          reset group
+        </button>
+      </summary>
 
-  <label for="maxiter">Max iterations</label>
-  <input id="maxiter" type="number" min="0" step="1" bind:value={$matcher.max_iterations} />
-
-  <label for="outliers">Kept correspondence fraction</label>
-  <input id="outliers" type="number" min="0" max="1" step="0.01" bind:value={$matcher.outliers_max_perc} />
-
-  <fieldset>
-    <legend>Switches</legend>
-    <label class="check"><input type="checkbox" bind:checked={$matcher.restart} /> Restart shell</label>
-    <label class="check"><input type="checkbox" bind:checked={$matcher.remove_doubles} /> Remove duplicate correspondences</label>
-    <label class="check"><input type="checkbox" bind:checked={$matcher.do_alpha_test} /> Alpha orientation test</label>
-    <label class="check"><input type="checkbox" bind:checked={$matcher.do_visibility_test} /> Visibility test</label>
-    <label class="check"><input type="checkbox" bind:checked={$matcher.do_compute_covariance} /> Compute covariance</label>
-  </fieldset>
+      {#each group.fields as field (field.key)}
+        <div class="field">
+          {#if field.kind === 'toggle'}
+            <label class="check">
+              <input
+                type="checkbox"
+                checked={boolValue(field)}
+                onchange={(event) => setField(field.key, event.currentTarget.checked)}
+              />
+              {field.label}
+            </label>
+          {:else if field.kind === 'select'}
+            <label for={field.key}>{field.label}</label>
+            <select
+              id={field.key}
+              value={stringValue(field)}
+              onchange={(event) => setField(field.key, event.currentTarget.value)}
+            >
+              {#each field.options ?? [] as option (option.value)}
+                <option value={option.value}>{option.label}</option>
+              {/each}
+            </select>
+          {:else}
+            <label for={field.key}>
+              {field.label}
+              {#if field.unit}<span class="unit">{field.unit}</span>{/if}
+              <span class="default">default {defaultValue(field.key)}</span>
+            </label>
+            <input
+              id={field.key}
+              type="number"
+              min={field.min}
+              max={field.max}
+              step={field.step}
+              value={numberValue(field)}
+              oninput={(event) => setField(field.key, Number(event.currentTarget.value))}
+            />
+          {/if}
+          <p class="help">
+            {field.help}
+            {#if field.depends}<em>{field.depends}</em>{/if}
+          </p>
+        </div>
+      {/each}
+    </details>
+  {/each}
 </section>
 
 <style>
@@ -76,32 +170,97 @@
     padding: 2px 6px;
   }
 
+  .issues {
+    margin: 10px 0;
+    padding: 8px 10px;
+    border: 1px solid var(--danger);
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+    font-size: 12px;
+  }
+
+  .issues ul {
+    margin: 4px 0 0;
+    padding-left: 16px;
+  }
+
+  .group {
+    border-top: 1px solid var(--line);
+    padding: 6px 0;
+  }
+
+  summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    list-style: none;
+  }
+
+  summary::-webkit-details-marker {
+    display: none;
+  }
+
+  summary::before {
+    content: '▸';
+    margin-right: 6px;
+    color: var(--muted);
+  }
+
+  details[open] > summary::before {
+    content: '▾';
+  }
+
+  .field {
+    padding: 6px 0 4px 14px;
+  }
+
   label {
-    margin-top: 8px;
+    display: block;
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--text);
   }
 
   label.check {
     display: flex;
     align-items: center;
     gap: 6px;
-    color: var(--text);
-    margin-top: 4px;
   }
 
   label.check input {
     width: auto;
   }
 
-  fieldset {
-    margin: 12px 0 0;
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    padding: 8px;
+  .unit,
+  .default {
+    font-size: 11px;
+    color: var(--muted);
+    margin-left: 6px;
   }
 
-  legend {
-    font-size: 12px;
+  .default {
+    float: right;
+    font-family: var(--font-mono);
+  }
+
+  input[type='number'],
+  select {
+    margin-top: 2px;
+  }
+
+  .help {
+    margin: 3px 0 0;
+    font-size: 11px;
     color: var(--muted);
-    padding: 0 4px;
+    line-height: 1.35;
+  }
+
+  .help em {
+    font-style: normal;
+    color: var(--raw);
   }
 </style>
