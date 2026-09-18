@@ -167,13 +167,13 @@
 
   polyline {
     fill: none;
-    stroke: var(--aligned);
+    stroke: var(--scan-solver);
     stroke-width: 1.5;
     vector-effect: non-scaling-stroke;
   }
 
   polyline.b {
-    stroke: var(--aligned-b);
+    stroke: var(--scan-candidate);
   }
 
   .note {

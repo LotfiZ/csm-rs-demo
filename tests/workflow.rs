@@ -53,7 +53,7 @@ async fn index_is_served() {
     let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
-    assert!(String::from_utf8_lossy(&bytes).contains("csm-rs workbench"));
+    assert!(String::from_utf8_lossy(&bytes).contains("csm-rs · scan matching lab"));
 }
 
 #[tokio::test]

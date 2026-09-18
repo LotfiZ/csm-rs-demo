@@ -90,7 +90,7 @@
   {/if}
 
   {#each MATCHER_GROUPS as group (group.id)}
-    <details open={group.open} class="group">
+    <details open={group.id === 'correspondence'} class="group">
       <summary>
         <span>{group.title}</span>
         <button
@@ -154,8 +154,7 @@
 
 <style>
   .panel {
-    padding: 12px;
-    overflow-y: auto;
+    padding: 0 20px 20px;
   }
 
   header {
@@ -166,9 +165,9 @@
 
   h2 {
     margin: 0;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--muted);
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 500;
   }
 
   .sides {
@@ -187,7 +186,7 @@
   }
 
   .hint {
-    margin: 2px 0 8px;
+    margin: 10px 0 12px;
     font-size: 12px;
     color: var(--muted);
   }
@@ -195,6 +194,7 @@
   .reset {
     font-size: 11px;
     padding: 2px 6px;
+    background: transparent;
   }
 
   .issues {
@@ -213,7 +213,7 @@
 
   .group {
     border-top: 1px solid var(--line);
-    padding: 6px 0;
+    padding: 10px 0 6px;
   }
 
   summary {
@@ -222,7 +222,7 @@
     justify-content: space-between;
     cursor: pointer;
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 500;
     color: var(--text);
     list-style: none;
   }
@@ -242,7 +242,7 @@
   }
 
   .field {
-    padding: 6px 0 4px 14px;
+    padding: 8px 0 4px 14px;
   }
 
   label {
@@ -288,6 +288,6 @@
 
   .help em {
     font-style: normal;
-    color: var(--raw);
+    color: var(--muted);
   }
 </style>

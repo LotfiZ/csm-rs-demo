@@ -699,4 +699,18 @@ mod tests {
         assert_eq!(first.estimated_pose, second.estimated_pose);
         assert_eq!(first.reference, second.reference);
     }
+
+    #[test]
+    fn trace_exposes_the_primary_solver_path() {
+        let mut request = request(4, 0.05);
+        request.matcher.max_iterations = 3;
+        request.trace = true;
+        let response = run_frame(&request).expect("traced frame runs");
+        let trace = response.trace.expect("trace is present");
+        assert_eq!(
+            trace.iter().map(|item| item.iteration).collect::<Vec<_>>(),
+            vec![0, 1, 2]
+        );
+        assert!(trace.iter().all(|item| !item.restart));
+    }
 }

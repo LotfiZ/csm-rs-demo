@@ -5,9 +5,11 @@
     matcherB,
     abMode,
     compare,
-    diagnosticsOpen,
     importMode,
     imported,
+    resultDetailsOpen,
+    stepMode,
+    stepTarget,
     view,
   } from '../lib/state';
   import { matcherDiff } from '../lib/matcherFields';
@@ -84,7 +86,7 @@
   });
 </script>
 
-<section class="bottom" aria-label="Metrics and diagnostics">
+<section class="bottom" aria-label="Result metrics">
   {#if $abMode}
     {#if $compare}
       <div class="compare">
@@ -217,16 +219,16 @@
         <span class="k">runtime</span>
         <span class="v mono">{$activeFrame ? $activeFrame.normal_ms.toFixed(3) : '—'} <em>ms</em></span>
       </div>
-      <button class="toggle" onclick={() => diagnosticsOpen.update((open) => !open)}>
-        {diagnosticsOpen ? 'hide diagnostics' : 'show diagnostics'}
+      <button class="toggle" onclick={() => resultDetailsOpen.update((open) => !open)} aria-expanded={$resultDetailsOpen}>
+        {$resultDetailsOpen ? 'hide details' : 'show details'}
       </button>
     </div>
 
-    {#if $diagnosticsOpen}
+    {#if $resultDetailsOpen}
       <div class="diagnostics">
         <div class="metric">
-          <span class="k">iterations</span>
-          <span class="v mono">{$activeFrame?.iterations ?? '—'}</span>
+          <span class="k">{$stepMode ? 'iteration target' : 'iterations'}</span>
+          <span class="v mono">{$stepMode ? $stepTarget : ($activeFrame?.iterations ?? '—')}</span>
         </div>
         <div class="metric">
           <span class="k">correspondences</span>
@@ -259,9 +261,7 @@
 
 <style>
   .bottom {
-    border-top: 1px solid var(--line);
     background: var(--surface);
-    max-height: 40vh;
     overflow-y: auto;
   }
 
@@ -275,18 +275,18 @@
     display: flex;
     flex-direction: column;
     gap: 1px;
-    padding: 8px 14px;
+    min-width: 124px;
+    padding: 9px 16px;
     border-right: 1px solid var(--line);
-    min-width: 130px;
   }
 
   .k {
-    font-size: 11px;
+    font-size: 10px;
     color: var(--muted);
   }
 
   .v {
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 500;
   }
 
@@ -297,17 +297,18 @@
   }
 
   .v.ok,
-  .ok { color: var(--aligned); }
+  .ok { color: var(--text); }
   .v.warn,
-  .warn { color: var(--raw); }
+  .warn { color: var(--muted); }
   .v.bad,
   .bad { color: var(--danger); }
   .v.muted { color: var(--muted); }
 
   .toggle {
-    margin: 8px 14px 8px auto;
+    margin: 8px 16px 8px auto;
     align-self: center;
     font-size: 12px;
+    background: transparent;
   }
 
   .diagnostics {
@@ -322,8 +323,8 @@
 
   .note {
     margin: 0;
-    padding: 8px 14px;
-    font-size: 12px;
+    padding: 8px 16px;
+    font-size: 11px;
     color: var(--muted);
   }
 
@@ -342,14 +343,14 @@
   th,
   td {
     text-align: left;
-    padding: 6px 14px;
+    padding: 6px 16px;
     border-bottom: 1px solid var(--line);
   }
 
   thead th {
     font-size: 11px;
     color: var(--muted);
-    font-weight: 600;
+    font-weight: 500;
   }
 
   tbody th {
@@ -396,11 +397,11 @@
   }
 
   .a {
-    color: var(--aligned);
+    color: var(--text);
   }
 
   .b {
-    color: var(--aligned-b);
+    color: var(--muted);
   }
 
   .arrow {

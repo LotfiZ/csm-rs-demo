@@ -30,7 +30,7 @@ export const EXAMPLE_LIST: Example[] = [
     id: 'easy-alignment',
     name: 'Easy alignment',
     observe:
-      'A cluttered room seen from two nearby poses. The aligned scan should settle onto the reference, with translation and rotation error near zero.',
+      'A cluttered room seen from two nearby poses. The sensor scan should settle onto the reference, with translation and rotation error near zero.',
     generation: generation({}),
   },
   {

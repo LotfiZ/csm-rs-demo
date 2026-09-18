@@ -8,9 +8,6 @@
     importMode,
     importPair,
     loadExample,
-    referenceMode,
-    sequenceMode,
-    trace,
   } from '../lib/state';
 
   const selected = $derived(exampleById($exampleId));
@@ -59,9 +56,10 @@
     {/each}
   </ul>
   <p class="observe">{selected.observe}</p>
+  <p class="preview-note">Changes update the preview. Run the matcher from step 03.</p>
 
-  <h2>Problem</h2>
-  <p class="hint">Shapes the problem. Never the matcher.</p>
+  <h2>Scene parameters</h2>
+  <p class="hint">These shape the generated scan.</p>
 
   <label for="noise">Range noise, m <output>{$generation.noise.toFixed(3)}</output></label>
   <input id="noise" type="range" min="0" max="0.2" step="0.002" bind:value={$generation.noise} />
@@ -81,12 +79,12 @@
   <input id="motion" type="range" min="0" max="3" step="0.05" bind:value={$generation.motion} />
 
   <details class="advanced">
-    <summary>Advanced generation</summary>
+    <summary>More scene settings</summary>
 
     <label for="seed">Seed</label>
     <input id="seed" type="number" min="0" step="1" bind:value={$generation.seed} />
 
-    <label for="step">{$sequenceMode ? 'Frames' : 'Frame step'} <output>{$generation.step}</output></label>
+    <label for="step">Scene sample <output>{$generation.step}</output></label>
     <input id="step" type="range" min="0" max="24" step="1" bind:value={$generation.step} />
 
     <label for="dropout">Dropout <output>{$generation.dropout.toFixed(2)}</output></label>
@@ -108,38 +106,31 @@
 
     <label for="overlap">Overlap separation, m <output>{$generation.overlap.toFixed(2)}</output></label>
     <input id="overlap" type="range" min="0" max="3" step="0.05" bind:value={$generation.overlap} />
-    <p class="hint">Moves the sensor further along its path. Less shared geometry is a measured outcome, not a set percentage.</p>
+    <p class="hint">Moves the sensor further along its path. This selects a generated scene sample; it does not select matcher iterations.</p>
   </details>
 
-  <h2>Run</h2>
-  <label for="reference">Reference</label>
-  <select id="reference" bind:value={$referenceMode}>
-    <option value="fixed">Fixed reference</option>
-    <option value="previous_frame">Previous frame</option>
-  </select>
-
-  <label class="check">
-    <input type="checkbox" bind:checked={$trace} />
-    Collect iteration trace
-  </label>
-
   <details class="advanced">
-    <summary>Data</summary>
-    <p class="hint">Secondary action. Imported data has no ground truth.</p>
-    {#if $importMode}
-      <button class="wide" onclick={clearImport}>Show generated data</button>
-    {/if}
-    <textarea
-      bind:value={pairText}
-      rows="6"
-      spellcheck="false"
-      placeholder="Paste a csm-rs-scan-pair document"
-      aria-label="Scan pair JSON"
-    ></textarea>
-    <div class="row">
-      <button onclick={() => importPair(pairText)}>Load pair</button>
-      <button onclick={() => (pairText = JSON.stringify(samplePair(), null, 2))}>Sample</button>
-    </div>
+    <summary>Advanced tools</summary>
+    <p class="hint">Bring your own scans or save a generated run for later.</p>
+
+    <section class="tool-section" aria-labelledby="import-scan-heading">
+      <h3 id="import-scan-heading">Import scan pair</h3>
+      <p class="hint">Paste reference and sensor scans as JSON. Imported scans have no ground truth.</p>
+      {#if $importMode}
+        <button class="wide" onclick={clearImport}>Use generated example</button>
+      {/if}
+      <textarea
+        bind:value={pairText}
+        rows="6"
+        spellcheck="false"
+        placeholder="Paste scan-pair JSON here"
+        aria-label="Scan pair JSON"
+      ></textarea>
+      <div class="row">
+        <button onclick={() => importPair(pairText)}>Load scan pair</button>
+        <button onclick={() => (pairText = JSON.stringify(samplePair(), null, 2))}>Use sample</button>
+      </div>
+    </section>
 
     <ExperimentsPanel />
   </details>
@@ -147,15 +138,14 @@
 
 <style>
   .panel {
-    padding: 12px;
-    overflow-y: auto;
+    padding: 0 20px 4px;
   }
 
   h2 {
-    margin: 14px 0 6px;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--muted);
+    margin: 24px 0 7px;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 500;
   }
 
   h2:first-child {
@@ -163,8 +153,8 @@
   }
 
   .hint {
-    margin: -2px 0 8px;
-    font-size: 12px;
+    margin: -2px 0 9px;
+    font-size: 11px;
     color: var(--muted);
   }
 
@@ -173,30 +163,57 @@
     margin: 0;
     padding: 0;
     display: grid;
-    gap: 4px;
+    gap: 2px;
   }
 
   .example {
     width: 100%;
+    padding: 8px 9px;
+    border-color: transparent;
+    border-left: 2px solid transparent;
+    border-radius: 0;
+    background: transparent;
+    color: var(--text);
+    font-size: 12px;
     text-align: left;
   }
 
+  .example:hover,
   .example.active {
-    border-color: var(--line-strong);
+    border-left-color: var(--ink);
     background: var(--surface-2);
-    font-weight: 600;
+  }
+
+  .example.active {
+    font-weight: 500;
   }
 
   .advanced {
-    margin-top: 12px;
+    margin-top: 18px;
     border-top: 1px solid var(--line);
-    padding-top: 8px;
+    padding-top: 11px;
   }
 
   .advanced summary {
-    font-size: 12px;
+    font-size: 11px;
     color: var(--muted);
     cursor: pointer;
+    list-style: none;
+  }
+
+  .advanced summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .advanced summary::before {
+    content: '+';
+    display: inline-block;
+    width: 15px;
+    color: var(--text);
+  }
+
+  .advanced[open] summary::before {
+    content: '–';
   }
 
   .advanced[open] summary {
@@ -205,25 +222,21 @@
   }
 
   .observe {
-    margin: 8px 0 4px;
-    font-size: 12px;
+    margin: 10px 0 5px;
+    font-size: 11px;
+    line-height: 1.45;
     color: var(--muted);
+  }
+
+  .preview-note {
+    margin: 0;
+    color: var(--text);
+    font-size: 10px;
+    line-height: 1.45;
   }
 
   label {
     margin-top: 8px;
-  }
-
-  label.check {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    color: var(--text);
-    margin-top: 10px;
-  }
-
-  label.check input {
-    width: auto;
   }
 
   output {
@@ -254,5 +267,18 @@
   .wide {
     width: 100%;
     margin-top: 6px;
+  }
+
+  .tool-section {
+    margin-top: 13px;
+    border-top: 1px solid var(--line);
+    padding-top: 12px;
+  }
+
+  .tool-section h3 {
+    margin: 0 0 4px;
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
   }
 </style>

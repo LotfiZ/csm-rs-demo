@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { activeFrame, compare, layers, placed, placeScan, placing, resetPlacement, result, sequence, setPlacing, theme, traceIteration, view } from '../lib/state';
+  import { activeFrame, compare, layers, placeScan, placing, preview, result, theme, traceIteration, view } from '../lib/state';
+  import type { PreviewResponse } from '../lib/api';
   import { tweenPose } from '../lib/tween';
 
   let wrap: HTMLDivElement;
@@ -21,12 +22,29 @@
   let rotating = false;
   let dragPose = $state<[number, number, number] | null>(null);
 
-  // Match animation: 0 is the raw pose, 1 the solved pose.
-  const ANIM_MS = 350;
+  // Scale the cue from the measured Rust run instead of imposing a long delay.
+  const ANIM_MIN_MS = 36;
+  const ANIM_MAX_MS = 120;
   let animT = $state(1);
   let animHandle: number | undefined;
   let animKey = '';
   let fitKey = '';
+  let drawHandle: number | undefined;
+  let drawPending = false;
+  let context: CanvasRenderingContext2D | null = null;
+  let pixelRatio = 1;
+  let palette = {
+    plot: '#111211',
+    muted: '#73736d',
+    reference: '#d4cfc2',
+    sensor: '#54aaa4',
+    candidateB: '#a897d7',
+    truth: '#d4e0e5',
+    correspondence: '#eef0e5',
+    danger: '#a83b34',
+    fontMono: 'monospace',
+  };
+  const MAX_VISIBLE_LINKS = 36;
 
   function reducedMotion(): boolean {
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -123,9 +141,16 @@
 
   function onPointerDown(event: PointerEvent) {
     if ($placing && $view?.initial_pose) {
+      const trace = $activeFrame?.trace;
+      const traceIndex = Math.min($traceIteration, Math.max(0, (trace?.length ?? 1) - 1));
+      const targetPose = trace?.[traceIndex]?.pose ?? $view.estimated_pose ?? $view.initial_pose;
+      const visiblePose =
+        targetPose && $view.initial_pose
+          ? tweenPose($view.initial_pose, targetPose, ease(animT))
+          : targetPose;
       scanDragging = true;
       rotating = event.shiftKey;
-      dragPose = [...$view.initial_pose] as [number, number, number];
+      dragPose = visiblePose ? [...visiblePose] : null;
       lastX = event.clientX;
       lastY = event.clientY;
       canvas.setPointerCapture(event.pointerId);
@@ -192,10 +217,6 @@
     });
   }
 
-  function color(name: string): string {
-    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  }
-
   function drawArrow(ctx: CanvasRenderingContext2D, pose: [number, number, number], stroke: string) {
     const [x, y, theta] = pose;
     const [sx, sy] = toScreen(x, y);
@@ -215,56 +236,53 @@
     ctx.fill();
   }
 
-  function drawPath(ctx: CanvasRenderingContext2D, points: [number, number][], stroke: string) {
-    if (points.length < 2) return;
-    ctx.strokeStyle = stroke;
-    ctx.lineWidth = 1.5;
-    ctx.globalAlpha = 0.8;
-    ctx.beginPath();
-    points.forEach(([x, y], index) => {
-      const [sx, sy] = toScreen(x, y);
-      if (index === 0) ctx.moveTo(sx, sy);
-      else ctx.lineTo(sx, sy);
+  function updatePalette() {
+    const styles = getComputedStyle(document.documentElement);
+    const value = (name: string, fallback: string) => styles.getPropertyValue(name).trim() || fallback;
+    palette = {
+      plot: value('--plot', palette.plot),
+      muted: value('--muted', palette.muted),
+      reference: value('--scan-reference', palette.reference),
+      sensor: value('--scan-sensor', palette.sensor),
+      candidateB: value('--scan-candidate', palette.candidateB),
+      truth: value('--scan-truth', palette.truth),
+      correspondence: value('--scan-correspondence', palette.correspondence),
+      danger: value('--danger', palette.danger),
+      fontMono: value('--font-mono', palette.fontMono),
+    };
+  }
+
+  function scheduleDraw() {
+    if (drawPending) return;
+    drawPending = true;
+    drawHandle = requestAnimationFrame(() => {
+      drawPending = false;
+      draw();
     });
-    ctx.stroke();
-    ctx.globalAlpha = 1;
+  }
+
+  function ease(t: number): number {
+    const clamped = Math.min(1, Math.max(0, t));
+    return clamped * clamped * (3 - 2 * clamped);
   }
 
   function draw() {
-    if (!canvas || cssW === 0 || cssH === 0) return;
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.round(cssW * dpr);
-    canvas.height = Math.round(cssH * dpr);
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const ctx = context;
+    if (!ctx || cssW === 0 || cssH === 0) return;
     ctx.clearRect(0, 0, cssW, cssH);
-    ctx.fillStyle = color('--plot');
+    ctx.fillStyle = palette.plot;
     ctx.fillRect(0, 0, cssW, cssH);
 
     const data = $view;
     if (!data) {
-      ctx.fillStyle = color('--muted');
-      ctx.font = `13px ${color('--font-mono') || 'monospace'}`;
+      ctx.fillStyle = palette.muted;
+      ctx.font = `13px ${palette.fontMono}`;
       ctx.textAlign = 'center';
       ctx.fillText('Pick an example and run a match.', cssW / 2, cssH / 2);
       return;
     }
 
     const visible = $layers;
-
-    if (visible.walls) {
-      ctx.strokeStyle = color('--line-strong');
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      for (const [[ax, ay], [bx, by]] of data.segments) {
-        const [x1, y1] = toScreen(ax, ay);
-        const [x2, y2] = toScreen(bx, by);
-        ctx.moveTo(x1, y1);
-        ctx.lineTo(x2, y2);
-      }
-      ctx.stroke();
-    }
 
     const radius = Math.max(1.2, 0.035 * fitScale() * zoom);
     const cloud = (
@@ -283,105 +301,160 @@
       ctx.globalAlpha = 1;
     };
 
-    if (visible.truth && data.sensor_true) cloud(data.sensor_true, color('--truth'), 0.9);
-    if (visible.unaligned) {
-      const shown =
-        dragPose && data.initial_pose
-          ? transformCloud(data.sensor_unaligned, data.initial_pose, dragPose)
-          : data.sensor_unaligned;
-      cloud(shown, color('--raw'), 0.75);
+    if (visible.truth && data.sensor_true) cloud(data.sensor_true, palette.truth, 0.9);
+    if (visible.reference) cloud(data.reference, palette.reference, 0.9);
+    const trace = $activeFrame?.trace;
+    const traceIndex = Math.min($traceIteration, Math.max(0, (trace?.length ?? 1) - 1));
+    const selectedTrace = trace && trace.length > 0 ? trace[traceIndex] : null;
+    const targetPose = selectedTrace?.pose ?? data.estimated_pose ?? data.initial_pose;
+    const sensorPose =
+      dragPose ??
+      (targetPose && data.initial_pose
+        ? tweenPose(data.initial_pose, targetPose, ease(animT))
+        : targetPose);
+    const sensorCloud =
+      sensorPose && data.initial_pose
+        ? transformCloud(data.sensor_unaligned, data.initial_pose, sensorPose)
+        : data.sensor_unaligned;
+
+    // One sensor cloud follows the pose. The initial and solved positions are
+    // states of the same scan, so the plot never doubles the sensor visually.
+    if (visible.scan) cloud(sensorCloud, palette.sensor, 0.95);
+
+    const candidatePose =
+      data.estimated_pose_b && data.initial_pose
+        ? tweenPose(data.initial_pose, data.estimated_pose_b, ease(animT))
+        : data.estimated_pose_b;
+    if (visible.candidateB && data.estimated_pose_b) {
+      const candidateCloud =
+        candidatePose && data.initial_pose
+          ? transformCloud(data.sensor_unaligned, data.initial_pose, candidatePose)
+          : data.sensor_aligned_b;
+      if (candidateCloud) cloud(candidateCloud, palette.candidateB, 0.95);
     }
-    if (visible.reference) cloud(data.reference, color('--ref'), 0.9);
-    if (visible.aligned && data.sensor_aligned && !dragPose)
-      cloud(
-        animT < 1 && data.estimated_pose && data.initial_pose
-          ? transformCloud(
-              data.sensor_aligned,
-              data.estimated_pose,
-              tweenPose(data.initial_pose, data.estimated_pose, animT),
-            )
-          : data.sensor_aligned,
-        color('--aligned'),
-        0.95,
-      );
-    if (visible.alignedB && data.sensor_aligned_b && !dragPose)
-      cloud(
-        animT < 1 && data.estimated_pose_b && data.initial_pose
-          ? transformCloud(
-              data.sensor_aligned_b,
-              data.estimated_pose_b,
-              tweenPose(data.initial_pose, data.estimated_pose_b, animT),
-            )
-          : data.sensor_aligned_b,
-        color('--aligned-b'),
-        0.95,
-      );
 
-    if (visible.truth && data.truth_pose) drawArrow(ctx, data.truth_pose, color('--truth'));
-    if (visible.unaligned && (dragPose ?? data.initial_pose))
-      drawArrow(ctx, (dragPose ?? data.initial_pose) as [number, number, number], color('--raw'));
-    if (visible.aligned && data.estimated_pose && !dragPose)
-      drawArrow(ctx, data.estimated_pose, color('--aligned'));
-    if (visible.alignedB && data.estimated_pose_b)
-      drawArrow(ctx, data.estimated_pose_b, color('--aligned-b'));
-
-    // Sequence trajectories: truth and the estimate actually travelled.
-    if (data.trajectory_true) drawPath(ctx, data.trajectory_true, color('--truth'));
-    if (data.trajectory_estimate) drawPath(ctx, data.trajectory_estimate, color('--aligned'));
+    if (visible.truth && data.truth_pose) drawArrow(ctx, data.truth_pose, palette.truth);
+    if (visible.scan && sensorPose) drawArrow(ctx, sensorPose, palette.sensor);
+    if (visible.candidateB && candidatePose) drawArrow(ctx, candidatePose, palette.candidateB);
 
     // A rejected update is marked, never drawn as a successful move.
     if (data.rejected && data.estimated_pose) {
       const [sx, sy] = toScreen(data.estimated_pose[0], data.estimated_pose[1]);
-      ctx.strokeStyle = color('--danger');
+      ctx.strokeStyle = palette.danger;
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.arc(sx, sy, 9, 0, Math.PI * 2);
       ctx.stroke();
     }
 
-    // Correspondences of the selected traced iteration, as real pairs.
-    const trace = $activeFrame?.trace;
-    if (visible.correspondences && trace && trace.length > 0) {
-      const iteration = trace[Math.min($traceIteration, trace.length - 1)];
-      if (iteration) {
-        ctx.strokeStyle = color('--muted');
-        ctx.lineWidth = 1;
-        ctx.globalAlpha = 0.5;
+    // The library records the sensor point before solving the selected
+    // iteration. Use the previous pose as its frame of reference so every
+    // endpoint stays attached to the sensor point drawn above.
+    if (visible.correspondences && selectedTrace) {
+      const correspondences = selectedTrace.correspondences.filter(
+        (item) =>
+          Number.isFinite(item.sensor_point[0]) &&
+          Number.isFinite(item.sensor_point[1]) &&
+          Number.isFinite(item.reference_point[0]) &&
+          Number.isFinite(item.reference_point[1]),
+      );
+      const distances = correspondences
+        .map((item) => item.distance)
+        .filter((distance) => Number.isFinite(distance));
+      const maxDistance = Math.max(...distances, 0.0001);
+      const stride = Math.max(1, Math.ceil(correspondences.length / MAX_VISIBLE_LINKS));
+      const correspondenceBasePose =
+        traceIndex > 0 ? trace?.[traceIndex - 1]?.pose ?? data.initial_pose : data.initial_pose;
+      const endpoints: Array<{ sensor: [number, number]; reference: [number, number]; quality: number }> = [];
+      for (let index = 0; index < correspondences.length; index += stride) {
+        const correspondence = correspondences[index];
+        const sensorPoint = sensorPose
+          ? transformCloud([correspondence.sensor_point], correspondenceBasePose, sensorPose)[0]
+          : correspondence.sensor_point;
+        const [x1, y1] = toScreen(sensorPoint[0], sensorPoint[1]);
+        const [x2, y2] = toScreen(
+          correspondence.reference_point[0],
+          correspondence.reference_point[1],
+        );
+        const quality = 1 - Math.min(1, Math.max(0, correspondence.distance / maxDistance));
+        const stroke = quality < 0.35 ? palette.danger : palette.correspondence;
+        ctx.strokeStyle = stroke;
+        ctx.lineCap = 'round';
+        ctx.globalAlpha = 0.18 + quality * 0.62;
+        ctx.lineWidth = 0.75 + quality * 1.25;
         ctx.beginPath();
-        for (const correspondence of iteration.correspondences) {
-          const [x1, y1] = toScreen(correspondence.sensor_point[0], correspondence.sensor_point[1]);
-          const [x2, y2] = toScreen(
-            correspondence.reference_point[0],
-            correspondence.reference_point[1],
-          );
-          ctx.moveTo(x1, y1);
-          ctx.lineTo(x2, y2);
-        }
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
         ctx.stroke();
-        ctx.globalAlpha = 1;
+        const angle = Math.atan2(y2 - y1, x2 - x1);
+        const head = 4 + quality * 2;
+        ctx.fillStyle = stroke;
+        ctx.globalAlpha = 0.24 + quality * 0.58;
+        ctx.beginPath();
+        ctx.moveTo(x2, y2);
+        ctx.lineTo(x2 - Math.cos(angle - 0.5) * head, y2 - Math.sin(angle - 0.5) * head);
+        ctx.lineTo(x2 - Math.cos(angle + 0.5) * head, y2 - Math.sin(angle + 0.5) * head);
+        ctx.closePath();
+        ctx.fill();
+        endpoints.push({ sensor: [x1, y1], reference: [x2, y2], quality });
       }
+      for (const endpoint of endpoints) {
+        ctx.globalAlpha = 0.75;
+        ctx.fillStyle = palette.sensor;
+        ctx.beginPath();
+        ctx.arc(endpoint.sensor[0], endpoint.sensor[1], 2.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = endpoint.quality < 0.35 ? palette.danger : palette.reference;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(endpoint.reference[0], endpoint.reference[1], 2.8, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      ctx.lineCap = 'butt';
     }
   }
 
+  function resizeCanvas() {
+    if (!canvas || cssW === 0 || cssH === 0) return;
+    const nextRatio = window.devicePixelRatio || 1;
+    const width = Math.round(cssW * nextRatio);
+    const height = Math.round(cssH * nextRatio);
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+      context = canvas.getContext('2d');
+    }
+    pixelRatio = nextRatio;
+    context?.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  }
+
   onMount(() => {
+    context = canvas.getContext('2d');
+    updatePalette();
     const observer = new ResizeObserver((entries) => {
       const rect = entries[0].contentRect;
       cssW = rect.width;
       cssH = rect.height;
+      resizeCanvas();
+      scheduleDraw();
     });
     observer.observe(wrap);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(drawHandle ?? 0);
+      cancelAnimationFrame(animHandle ?? 0);
+    };
   });
 
   $effect(() => {
-    // Track every input that changes the picture.
+    // Coalesce pointer and store updates into one paint per browser frame.
     void $view;
     void $activeFrame;
     void $traceIteration;
     void $layers;
     void $theme;
     void $placing;
-    void $placed;
     void cssW;
     void cssH;
     void zoom;
@@ -389,11 +462,17 @@
     void panY;
     void animT;
     void dragPose;
-    draw();
+    scheduleDraw();
   });
 
   $effect(() => {
-    // One animation per new result or sequence frame, keyed by identity so
+    void $theme;
+    updatePalette();
+    scheduleDraw();
+  });
+
+  $effect(() => {
+    // One animation per new result, keyed by identity so
     // panning and zooming never restart it.
     const key = `${poseOf($result?.request_id)}:${poseOf($compare?.request_id)}:${poseOf($activeFrame?.request_id)}`;
     if (!key || key === animKey) return;
@@ -405,8 +484,10 @@
     animT = 0;
     cancelAnimationFrame(animHandle ?? 0);
     const start = performance.now();
+    const runtimeMs = $activeFrame?.normal_ms ?? $compare?.a.normal_ms ?? 0;
+    const duration = Math.min(ANIM_MAX_MS, Math.max(ANIM_MIN_MS, runtimeMs * 4));
     const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / ANIM_MS);
+      const t = Math.min(1, (now - start) / duration);
       animT = t;
       if (t < 1) animHandle = requestAnimationFrame(tick);
     };
@@ -414,12 +495,32 @@
   });
 
   $effect(() => {
-    // Fit once per new run or sequence, never on scrub or preview refresh.
-    const seqLen = $sequence?.frames.length ?? 0;
-    const key = `${poseOf($result?.request_id)}:${poseOf($compare?.request_id)}:${seqLen}`;
+    // Fit once per new run or preview, never on scrub or pan.
+    const key = `${poseOf($result?.request_id)}:${poseOf($compare?.request_id)}`;
     if (!key || key === fitKey || cssW <= 0) return;
     fitKey = key;
     resetView();
+  });
+
+  let lastPreview: PreviewResponse | null = null;
+  $effect(() => {
+    const currentPreview = $preview;
+    void cssW;
+    if (!currentPreview || currentPreview === lastPreview || cssW <= 0) return;
+    const samePoints = (a: [number, number][] | undefined, b: [number, number][] | undefined) =>
+      a?.length === b?.length &&
+      a?.every((point, index) => point[0] === b?.[index]?.[0] && point[1] === b?.[index]?.[1]);
+    const geometryChanged =
+      !lastPreview ||
+      !samePoints(currentPreview.reference, lastPreview.reference) ||
+      !samePoints(currentPreview.sensor_true, lastPreview.sensor_true);
+    lastPreview = currentPreview;
+    if (geometryChanged) resetView();
+  });
+
+  const selectedIteration = $derived.by(() => {
+    const iterations = $activeFrame?.trace ?? [];
+    return iterations[Math.min($traceIteration, Math.max(0, iterations.length - 1))] ?? null;
   });
 </script>
 
@@ -440,27 +541,24 @@
     class:placing={$placing}
   ></canvas>
 
-  <fieldset class="legend" aria-label="Scan layers">
-    <label><input type="checkbox" bind:checked={$layers.walls} /> walls</label>
-    <label><input type="checkbox" bind:checked={$layers.reference} /> <i class="sw ref"></i>reference</label>
-    <label><input type="checkbox" bind:checked={$layers.unaligned} /> <i class="sw raw"></i>raw sensor</label>
-    <label><input type="checkbox" bind:checked={$layers.aligned} /> <i class="sw aligned"></i>aligned A</label>
-    <label><input type="checkbox" bind:checked={$layers.alignedB} /> <i class="sw aligned-b"></i>aligned B</label>
-    <label><input type="checkbox" bind:checked={$layers.truth} /> <i class="sw truth"></i>truth</label>
-    <label><input type="checkbox" bind:checked={$layers.correspondences} /> correspondences</label>
-    <button class="reset" onclick={resetView}>reset view</button>
-    <div class="place">
-      <button class:active={$placing} onclick={() => setPlacing(!$placing)}>
-        {$placing ? 'Placing scan' : 'Place scan'}
-      </button>
-      {#if $placed}
-        <button onclick={resetPlacement}>Reset placement</button>
-      {/if}
+  <details class="legend" aria-label="Scan layers">
+    <summary>Layers</summary>
+    <div class="layer-list">
+      <label><input type="checkbox" bind:checked={$layers.reference} /> <i class="sw ref"></i>reference scan</label>
+      <label><input type="checkbox" bind:checked={$layers.scan} /> <i class="sw sensor"></i>sensor scan</label>
+      <label><input type="checkbox" bind:checked={$layers.candidateB} /> <i class="sw candidate-b"></i>candidate B</label>
+      <label><input type="checkbox" bind:checked={$layers.truth} /> <i class="sw truth"></i>ground truth</label>
+      <label><input type="checkbox" bind:checked={$layers.correspondences} /> <i class="sw correspondence"></i>correspondences</label>
+      <button class="reset" onclick={resetView}>Reset view</button>
     </div>
-    {#if $placing}
-      <p class="tip">Drag to move the scan, shift-drag to rotate. Release to re-run.</p>
-    {/if}
-  </fieldset>
+  </details>
+
+  {#if $placing}
+    <div class="plot-tip" role="status">
+      <strong>Placement mode</strong>
+      <span>drag to move · shift + drag to rotate</span>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -468,7 +566,7 @@
     position: relative;
     width: 100%;
     height: 100%;
-    min-height: 320px;
+    min-height: 0;
     overflow: hidden;
   }
 
@@ -489,16 +587,50 @@
 
   .legend {
     position: absolute;
-    top: 10px;
-    left: 10px;
+    top: 16px;
+    left: 16px;
     margin: 0;
-    padding: 8px 10px;
-    display: grid;
-    gap: 3px;
-    background: color-mix(in srgb, var(--surface) 88%, transparent);
+    padding: 0;
+    background: color-mix(in srgb, var(--surface) 92%, transparent);
     border: 1px solid var(--line);
     border-radius: var(--radius);
     font-size: 12px;
+  }
+
+  .legend summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-width: 92px;
+    padding: 7px 9px;
+    color: var(--text);
+    cursor: pointer;
+    font-size: 11px;
+    list-style: none;
+  }
+
+  .legend summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .legend summary::after {
+    content: '+';
+    color: var(--muted);
+    font-family: var(--font-mono);
+  }
+
+  .legend[open] summary {
+    border-bottom: 1px solid var(--line);
+  }
+
+  .legend[open] summary::after {
+    content: '–';
+  }
+
+  .layer-list {
+    display: grid;
+    gap: 4px;
+    padding: 8px 9px 9px;
   }
 
   .legend label {
@@ -521,39 +653,35 @@
     display: inline-block;
   }
 
-  .sw.ref { background: var(--ref); }
-  .sw.raw { background: var(--raw); }
-  .sw.aligned { background: var(--aligned); }
-  .sw.aligned-b { background: var(--aligned-b); }
-  .sw.truth { background: var(--truth); }
+  .sw.ref { background: var(--scan-reference); }
+  .sw.sensor { background: var(--scan-sensor); }
+  .sw.candidate-b { background: var(--scan-candidate); }
+  .sw.truth { background: var(--scan-truth); }
+  .sw.correspondence { background: var(--scan-correspondence); }
 
   .reset {
-    margin-top: 4px;
+    width: 100%;
+    margin-top: 3px;
     font-size: 11px;
     padding: 2px 6px;
   }
 
-  .place {
-    display: flex;
-    gap: 4px;
-    margin-top: 4px;
-  }
-
-  .place button {
+  .plot-tip {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    display: grid;
+    gap: 2px;
+    padding: 8px 10px;
+    border: 1px solid var(--line-strong);
+    background: color-mix(in srgb, var(--surface) 92%, transparent);
+    color: var(--text);
     font-size: 11px;
-    padding: 2px 6px;
   }
 
-  .place button.active {
-    border-color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 20%, var(--surface-2));
-  }
-
-  .tip {
-    margin: 4px 0 0;
-    max-width: 190px;
-    font-size: 11px;
+  .plot-tip span {
     color: var(--muted);
+    font-size: 10px;
   }
 
   canvas.placing {

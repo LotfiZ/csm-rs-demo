@@ -34,7 +34,8 @@ export const referenceMode = writable('fixed');
 export const trace = writable(false);
 
 export const abMode = writable(false);
-export const sequenceMode = writable(false);
+/** Step through one matcher iteration at a time. */
+export const stepMode = writable(false);
 export const matcher = writable<MatcherConfig>({ ...DEFAULT_MATCHER });
 export const matcherB = writable<MatcherConfig>({ ...DEFAULT_MATCHER });
 export const editingSide = writable<Side>('A');
@@ -57,17 +58,8 @@ export const preview = writable<PreviewResponse | null>(null);
 export const running = writable(false);
 export const error = writable<string | null>(null);
 
-export interface SequenceState {
-  frames: FrameResponse[];
-  referenceMode: string;
-  truth: [number, number][];
-  estimate: [number, number][];
-}
-
-export const sequence = writable<SequenceState | null>(null);
-export const sequenceIndex = writable(0);
-export const sequenceProgress = writable<{ done: number; total: number } | null>(null);
-export const playing = writable(false);
+/** Number of matcher iterations requested by the step-through mode. */
+export const stepTarget = writable(0);
 
 export const importMode = writable(false);
 export const imported = writable<ImportResponse | null>(null);
@@ -81,18 +73,19 @@ export const rerunResult = writable<ImportResponse | null>(null);
 const requestId = writable(0);
 /** The exact inputs behind the displayed result, for outdated detection. */
 const resultKey = writable<string | null>(null);
+/** True after a completed run has been invalidated by an input change. */
+export const outdated = writable(false);
 
 export const layers = writable({
-  walls: true,
   reference: true,
-  unaligned: true,
-  aligned: true,
-  alignedB: true,
+  scan: true,
+  candidateB: true,
   truth: true,
-  correspondences: true,
+  correspondences: false,
 });
 
 export const diagnosticsOpen = writable(true);
+export const resultDetailsOpen = writable(true);
 /** Selected iteration in the trace, for stepping and overlay. */
 export const traceIteration = writable(0);
 
@@ -135,34 +128,13 @@ function activeKey(): string {
     get(referenceMode),
     get(trace),
     get(abMode),
+    get(stepMode),
     get(abMode) ? get(matcherB) : null,
   ]);
 }
 
-/** The frame whose pair diagnostics are shown: sequence, or the single result. */
-export const activeFrame = derived(
-  [result, sequence, sequenceIndex, sequenceMode],
-  ([$result, $sequence, $index, $sequenceMode]) => {
-    if ($sequenceMode && $sequence) return $sequence.frames[$index] ?? null;
-    return $result;
-  },
-);
-
-/** True when the displayed result no longer matches the current inputs. */
-export const outdated = derived(
-  [generation, matcher, matcherB, referenceMode, trace, abMode, resultKey],
-  ([$generation, $matcher, $matcherB, $mode, $trace, $ab, $key]) => {
-    const current = JSON.stringify([
-      $generation,
-      $matcher,
-      $mode,
-      $trace,
-      $ab,
-      $ab ? $matcherB : null,
-    ]);
-    return $key !== null && $key !== current;
-  },
-);
+/** The frame whose pair diagnostics are shown. */
+export const activeFrame = derived(result, ($result) => $result);
 
 /** What the plot draws: the live result when current, otherwise a preview. */
 export interface ViewData {
@@ -190,9 +162,8 @@ export const view = derived(
     preview,
     outdated,
     abMode,
-    sequenceMode,
-    sequence,
-    sequenceIndex,
+    stepMode,
+    traceIteration,
     importMode,
     imported,
   ],
@@ -203,9 +174,8 @@ export const view = derived(
       $preview,
       $outdated,
       $ab,
-      $sequenceMode,
-      $sequence,
-      $index,
+      $stepMode,
+      $traceIteration,
       $importMode,
       $imported,
     ],
@@ -221,26 +191,6 @@ export const view = derived(
         segments: [],
         hasTruth: false,
       };
-    }
-    if ($sequenceMode && $sequence && !$outdated) {
-      const frame = $sequence.frames[$index];
-      if (frame) {
-        return {
-          reference: frame.reference,
-          sensor_unaligned: frame.sensor_unaligned,
-          sensor_true: frame.sensor_true,
-          sensor_aligned: frame.sensor_aligned,
-          estimated_pose: frame.estimated_pose,
-          truth_pose: frame.truth_pose,
-          initial_pose: frame.initial_pose,
-          extent: frame.extent,
-          segments: frame.segments,
-          trajectory_true: $sequence.truth,
-          trajectory_estimate: $sequence.estimate,
-          rejected: !frame.accepted,
-          hasTruth: true,
-        };
-      }
     }
     if ($ab && $compare && !$outdated) {
       return {
@@ -258,18 +208,50 @@ export const view = derived(
         hasTruth: true,
       };
     }
-    if (!$ab && !$sequenceMode && $result && !$outdated) return $result as ViewData;
+    if (!$ab && $result && !$outdated) {
+      const trace = $result.trace;
+      const index = Math.min($traceIteration, Math.max(0, (trace?.length ?? 1) - 1));
+      const iteration = $stepMode && trace && trace.length > 0 ? trace[index] : null;
+      return iteration
+        ? { ...($result as ViewData), estimated_pose: iteration.pose }
+        : ($result as ViewData);
+    }
     return ($preview as ViewData | null) ?? ($result as ViewData | null);
   },
 );
 
+/** Remove every visual and metric from a run before a new input is shown. */
+function invalidateResults(clearScene: boolean) {
+  const hasRun =
+    get(resultKey) !== null || get(result) !== null || get(compare) !== null || get(imported) !== null;
+  if (!hasRun) {
+    if (clearScene) preview.set(null);
+    return;
+  }
+  result.set(null);
+  compare.set(null);
+  benchmark.set(null);
+  importMode.set(false);
+  imported.set(null);
+  resultKey.set(null);
+  stepTarget.set(0);
+  traceIteration.set(0);
+  if (clearScene) preview.set(null);
+  outdated.set(true);
+}
+
 export function loadExample(id: string) {
+  invalidateResults(true);
   const example = exampleById(id);
   exampleId.set(example.id);
   generation.set({ ...example.generation, initial_guess: null });
+  importMode.set(false);
+  imported.set(null);
   placed.set(false);
-  // An example is a fresh problem: run it so the plot actually changes.
-  void run();
+  placing.set(false);
+  stepTarget.set(0);
+  traceIteration.set(0);
+  outdated.set(false);
 }
 
 /** True while the scan can be dragged to set the initial guess by hand. */
@@ -281,38 +263,69 @@ export function setPlacing(value: boolean) {
   placing.set(value);
 }
 
-/** Commit a hand-placed scan as the explicit initial guess and re-run. */
+function movePoint(
+  point: [number, number],
+  base: [number, number, number],
+  pose: [number, number, number],
+): [number, number] {
+  const dtheta = pose[2] - base[2];
+  const cos = Math.cos(dtheta);
+  const sin = Math.sin(dtheta);
+  const dx = pose[0] - base[0];
+  const dy = pose[1] - base[1];
+  const rx = point[0] - base[0];
+  const ry = point[1] - base[1];
+  return [base[0] + cos * rx - sin * ry + dx, base[1] + sin * rx + cos * ry + dy];
+}
+
+/** Commit a hand-placed scan as the explicit initial guess. Matching stays explicit. */
 export function placeScan(pose: [number, number, number]) {
   generation.update((current) => ({ ...current, initial_guess: pose }));
+  // Keep the already rendered cloud in the new pose while the lightweight
+  // generation preview catches up. Move the points as well as the metadata;
+  // otherwise the next paint would interpret old world points with the new
+  // pose and briefly jump to the wrong location.
+  preview.update((current) => {
+    if (!current) return current;
+    return {
+      ...current,
+      sensor_unaligned: current.sensor_unaligned.map((point) =>
+        movePoint(point, current.initial_pose, pose),
+      ),
+      initial_pose: pose,
+    };
+  });
   placed.set(true);
-  void run();
 }
 
 export function resetPlacement() {
   generation.update((current) => ({ ...current, initial_guess: null }));
   placed.set(false);
-  void run();
+  placing.set(false);
 }
 
 export function setAbMode(value: boolean) {
   abMode.set(value);
   if (value) {
-    sequenceMode.set(false);
+    stepMode.set(false);
     importMode.set(false);
     imported.set(null);
     editingSide.set('A');
   }
 }
 
-export function setSequenceMode(value: boolean) {
-  sequenceMode.set(value);
-  pauseSequence();
+export function setStepMode(value: boolean) {
+  stepMode.set(value);
   if (value) {
     setAbMode(false);
     importMode.set(false);
     imported.set(null);
   }
 }
+
+/** Backwards-compatible name for callers that still refer to the old mode. */
+export const sequenceMode = stepMode;
+export const setSequenceMode = setStepMode;
 
 /** Import an ordered polar/Cartesian scan pair. No ground truth is invented. */
 export async function importPair(text: string) {
@@ -326,8 +339,11 @@ export async function importPair(text: string) {
     importMode.set(true);
     result.set(null);
     compare.set(null);
-    sequence.set(null);
     benchmark.set(null);
+    resultKey.set(activeKey());
+    stepTarget.set(0);
+    traceIteration.set(0);
+    outdated.set(false);
   } catch (cause) {
     error.set(cause instanceof Error ? cause.message : String(cause));
   }
@@ -381,6 +397,12 @@ export async function openExperiment(name: string) {
     referenceMode.set(document.session.reference_mode);
     importMode.set(false);
     imported.set(null);
+    result.set(null);
+    compare.set(null);
+    resultKey.set(null);
+    stepTarget.set(0);
+    traceIteration.set(0);
+    outdated.set(false);
   } catch (cause) {
     error.set(cause instanceof Error ? cause.message : String(cause));
   }
@@ -419,7 +441,7 @@ export async function rerunLoadedExperiment() {
 }
 
 export async function run() {
-  if (get(sequenceMode)) return runSequence();
+  if (get(stepMode)) return runStep();
   importMode.set(false);
   imported.set(null);
   if (get(issues).length > 0) {
@@ -445,6 +467,8 @@ export async function run() {
       compare.set(response);
       result.set(null);
       resultKey.set(key);
+      traceIteration.set(0);
+      outdated.set(false);
     } else {
       const request: RunRequest = {
         generation: get(generation),
@@ -458,6 +482,8 @@ export async function run() {
       result.set(response);
       compare.set(null);
       resultKey.set(key);
+      traceIteration.set(Math.max(0, (response.trace?.length ?? 1) - 1));
+      outdated.set(false);
     }
   } catch (cause) {
     if (id === get(requestId)) error.set(cause instanceof Error ? cause.message : String(cause));
@@ -465,6 +491,63 @@ export async function run() {
     if (id === get(requestId)) running.set(false);
   }
 }
+
+/** Run the same pair with one more allowed iteration in step-through mode. */
+export async function runStep() {
+  if (get(issues).length > 0) {
+    error.set('Fix the invalid matcher settings before running.');
+    return;
+  }
+  importMode.set(false);
+  imported.set(null);
+  const maxIterations = Math.max(1, Math.floor(get(matcher).max_iterations));
+  const target = Math.min(maxIterations, Math.max(1, get(stepTarget) + 1));
+  stepTarget.set(target);
+  const id = get(requestId) + 1;
+  requestId.set(id);
+  running.set(true);
+  error.set(null);
+  const key = activeKey();
+  try {
+    const response = await runFrame({
+      generation: get(generation),
+      matcher: { ...get(matcher), max_iterations: target },
+      reference_mode: get(referenceMode),
+      trace: true,
+      request_id: id,
+    });
+    if (response.request_id < get(requestId)) return;
+    result.set(response);
+    compare.set(null);
+    resultKey.set(key);
+    traceIteration.set(Math.max(0, (response.trace?.length ?? 1) - 1));
+    outdated.set(false);
+  } catch (cause) {
+    if (id === get(requestId)) error.set(cause instanceof Error ? cause.message : String(cause));
+  } finally {
+    if (id === get(requestId)) running.set(false);
+  }
+}
+
+export function resetStep() {
+  stepTarget.set(0);
+  traceIteration.set(0);
+  result.set(null);
+  compare.set(null);
+  benchmark.set(null);
+  resultKey.set(null);
+  outdated.set(false);
+}
+
+export const canRunNextStep = derived(
+  [stepMode, result, stepTarget, matcher, running],
+  ([$stepMode, $result, $target, $matcher, $running]) => {
+    if (!$stepMode || $running) return false;
+    if (!$result) return true;
+    const maxIterations = Math.max(1, Math.floor($matcher.max_iterations));
+    return $result.termination === 'IterationLimit' && $target < maxIterations;
+  },
+);
 
 // --- Repeated A/B benchmark ----------------------------------------------
 
@@ -495,14 +578,22 @@ export async function runBenchmark() {
 }
 
 let previewTimer: ReturnType<typeof setTimeout> | undefined;
+let previewRequestId = 0;
 /** Regenerate the scene preview without running the matcher. */
 export async function refreshPreview() {
+  const id = ++previewRequestId;
+  const request: PreviewRequest = {
+    generation: get(generation),
+    reference_mode: get(referenceMode),
+  };
+  const key = JSON.stringify(request);
   try {
-    const request: PreviewRequest = {
+    const response = await previewFrame(request);
+    const currentKey = JSON.stringify({
       generation: get(generation),
       reference_mode: get(referenceMode),
-    };
-    preview.set(await previewFrame(request));
+    });
+    if (id === previewRequestId && key === currentKey) preview.set(response);
   } catch {
     // Preview failures are non-fatal; Run surfaces configuration problems.
   }
@@ -513,117 +604,31 @@ function schedulePreview() {
   previewTimer = setTimeout(refreshPreview, 120);
 }
 
-// Any change to the generated problem refreshes the preview immediately.
-generation.subscribe(schedulePreview);
-referenceMode.subscribe(schedulePreview);
-
-// --- Sequence execution and playback -------------------------------------
-
-let sequenceCancelled = false;
-let playbackTimer: ReturnType<typeof setTimeout> | undefined;
-
-/**
- * Run frames 1..step one at a time. Each previous-frame step carries its own
- * accumulated estimate forward, so no prefix is ever recomputed, and stopping
- * the loop is instant cancellation.
- */
-export async function runSequence() {
-  if (get(issues).length > 0) {
-    error.set('Fix the invalid matcher settings before running.');
-    return;
+// Clear the displayed run as soon as its inputs change. Keep the last preview
+// visible until the next generation response arrives so edits stay responsive.
+generation.subscribe(() => {
+  invalidateResults(false);
+  schedulePreview();
+});
+referenceMode.subscribe(() => {
+  invalidateResults(false);
+  schedulePreview();
+});
+matcher.subscribe(() => invalidateResults(false));
+matcherB.subscribe(() => {
+  if (get(abMode)) invalidateResults(false);
+});
+trace.subscribe(() => invalidateResults(false));
+abMode.subscribe(() => invalidateResults(false));
+stepMode.subscribe((value) => {
+  invalidateResults(false);
+  if (!value) {
+    stepTarget.set(0);
+    traceIteration.set(0);
   }
-  importMode.set(false);
-  imported.set(null);
-  pauseSequence();
-  const total = Math.max(1, get(generation).step);
-  const mode = get(referenceMode);
-  sequenceCancelled = false;
-  running.set(true);
-  error.set(null);
-  sequenceProgress.set({ done: 0, total });
-  resultKey.set(activeKey());
+});
 
-  const frames: FrameResponse[] = [];
-  const truth: [number, number][] = [];
-  const estimate: [number, number][] = [];
-  let prior: [number, number, number] | null = mode === 'previous_frame' ? [0, 0, 0] : null;
-
-  try {
-    for (let step = 1; step <= total; step += 1) {
-      if (sequenceCancelled) break;
-      const response = await runFrame({
-        generation: { ...get(generation), step },
-        matcher: get(matcher),
-        reference_mode: mode,
-        prior_estimate: prior,
-        trace: false,
-        request_id: step,
-      });
-      frames.push(response);
-      truth.push([response.truth_pose[0], response.truth_pose[1]]);
-      estimate.push([response.estimated_pose[0], response.estimated_pose[1]]);
-      if (mode === 'previous_frame') prior = response.estimated_pose;
-      sequenceProgress.set({ done: step, total });
-    }
-    if (!sequenceCancelled) {
-      sequence.set({ frames, referenceMode: mode, truth, estimate });
-      sequenceIndex.set(0);
-      result.set(null);
-      compare.set(null);
-    }
-  } catch (cause) {
-    if (!sequenceCancelled) error.set(cause instanceof Error ? cause.message : String(cause));
-  } finally {
-    running.set(false);
-    sequenceProgress.set(null);
-  }
-}
-
-export function cancelSequence() {
-  sequenceCancelled = true;
-}
-
-export function pauseSequence() {
-  if (playbackTimer) {
-    clearTimeout(playbackTimer);
-    playbackTimer = undefined;
-  }
-  playing.set(false);
-}
-
-export function playSequence() {
-  if (playbackTimer) return;
-  playing.set(true);
-  const tick = () => {
-    const current = get(sequence);
-    if (!current) {
-      pauseSequence();
-      return;
-    }
-    const next = get(sequenceIndex) + 1;
-    if (next >= current.frames.length) {
-      pauseSequence();
-      return;
-    }
-    sequenceIndex.set(next);
-    playbackTimer = setTimeout(tick, 400);
-  };
-  playbackTimer = setTimeout(tick, 250);
-}
-
-export function stepSequence(delta: number) {
-  const current = get(sequence);
-  if (!current) return;
-  const next = Math.min(current.frames.length - 1, Math.max(0, get(sequenceIndex) + delta));
-  sequenceIndex.set(next);
-}
-
-export function resetSequence() {
-  pauseSequence();
-  sequenceIndex.set(0);
-}
-
-export const theme = writable<Theme>('dark');
+export const theme = writable<Theme>('light');
 
 export function initTheme() {
   const stored = localStorage.getItem('csm-theme');

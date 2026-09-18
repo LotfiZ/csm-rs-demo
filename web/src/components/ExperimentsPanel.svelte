@@ -3,6 +3,7 @@
     experiments,
     experimentWarnings,
     exportLoadedExperiment,
+    importMode,
     importPortable,
     loadedExperiment,
     openExperiment,
@@ -24,98 +25,120 @@
   });
 </script>
 
-<h2>Experiments</h2>
-<p class="hint">Saved on the local backend; survives restarts and browser cleanup.</p>
+<section class="saved-section" aria-labelledby="saved-runs-heading">
+  <h3 id="saved-runs-heading">Saved runs</h3>
+  <p class="hint">Save a generated setup and its result so you can load or replay it later.</p>
 
-<div class="row">
-  <input type="text" bind:value={name} placeholder="experiment name" aria-label="Experiment name" />
-  <button onclick={() => saveCurrentExperiment(name)} disabled={name.trim() === ''}>Save</button>
-</div>
-
-{#if $experiments.length > 0}
-  <ul class="list">
-    {#each $experiments as saved (saved)}
-      <li>
-        <button
-          class:active={$loadedExperiment?.name === saved}
-          onclick={() => openExperiment(saved)}
-        >
-          {saved}
-        </button>
-      </li>
-    {/each}
-  </ul>
-{:else}
-  <p class="hint">No saved experiments yet.</p>
-{/if}
-
-{#if $loadedExperiment}
-  <div class="loaded">
-    <div class="stat">
-      <span>loaded</span><span class="mono">{$loadedExperiment.name}</span>
+  {#if $importMode}
+    <p class="notice">Saved runs currently support generated examples. Choose an example above before saving.</p>
+  {:else}
+    <div class="row">
+      <input
+        type="text"
+        bind:value={name}
+        placeholder="name, e.g. noisy-room"
+        aria-label="Saved run name"
+      />
+      <button onclick={() => saveCurrentExperiment(name)} disabled={name.trim() === ''}>Save run</button>
     </div>
-    <div class="stat">
-      <span>app / library</span>
-      <span class="mono">{$loadedExperiment.versions.app} / {$loadedExperiment.versions.library.slice(0, 7)}</span>
-    </div>
-    <div class="stat">
-      <span>saved observation</span>
-      <span class="mono"
-        >{$loadedExperiment.session.result.termination} ·
-        {($loadedExperiment.session.result.estimated_pose[0]).toFixed(3)},
-        {($loadedExperiment.session.result.estimated_pose[1]).toFixed(3)}</span
-      >
-    </div>
+  {/if}
 
-    <button class="wide" onclick={rerunLoadedExperiment}>Rerun from stored scans</button>
+  {#if $experiments.length > 0}
+    <ul class="list" aria-label="Saved runs">
+      {#each $experiments as saved (saved)}
+        <li>
+          <button
+            class:active={$loadedExperiment?.name === saved}
+            onclick={() => openExperiment(saved)}
+          >
+            {saved}
+          </button>
+        </li>
+      {/each}
+    </ul>
+  {:else}
+    <p class="hint">No saved runs yet.</p>
+  {/if}
 
-    {#if $rerunResult && delta !== null}
-      <div class="stat">
-        <span>rerun</span>
-        <span class="mono">{$rerunResult.termination} · pose Δ {delta.toExponential(2)} m</span>
+  {#if $loadedExperiment}
+    <div class="loaded">
+      <div class="loaded-heading">
+        <span>Loaded run</span>
+        <strong class="mono">{$loadedExperiment.name}</strong>
       </div>
-      <p class="hint">
-        The saved observation and this rerun are kept separate. A nonzero Δ or a different
-        termination means the rerun does not reproduce the stored snapshot.
-      </p>
-    {/if}
+      <div class="stat">
+        <span>termination</span>
+        <span class="mono">{$loadedExperiment.session.result.termination}</span>
+      </div>
+      <div class="stat">
+        <span>estimated position</span>
+        <span class="mono"
+          >{($loadedExperiment.session.result.estimated_pose[0]).toFixed(3)},
+          {($loadedExperiment.session.result.estimated_pose[1]).toFixed(3)} m</span
+        >
+      </div>
 
-    {#if $experimentWarnings.length > 0}
-      <ul class="warnings" role="alert">
-        {#each $experimentWarnings as warning (warning)}
-          <li>{warning}</li>
-        {/each}
-      </ul>
-    {/if}
-  </div>
-{/if}
+      <button class="wide" onclick={rerunLoadedExperiment}>Replay stored scans</button>
 
-  <h2>Portable document</h2>
+      {#if $rerunResult && delta !== null}
+        <div class="stat">
+          <span>replay result</span>
+          <span class="mono">{$rerunResult.termination} · position change {delta.toExponential(2)} m</span>
+        </div>
+        <p class="hint">
+          Replay uses the stored scans again. A position difference or different termination means
+          the saved result did not reproduce exactly.
+        </p>
+      {/if}
+
+      {#if $experimentWarnings.length > 0}
+        <ul class="warnings" role="alert">
+          {#each $experimentWarnings as warning (warning)}
+            <li>{warning}</li>
+          {/each}
+        </ul>
+      {/if}
+
+      <details class="metadata">
+        <summary>Technical details</summary>
+        <div class="stat">
+          <span>app / library</span>
+          <span class="mono">{$loadedExperiment.versions.app} / {$loadedExperiment.versions.library.slice(0, 7)}</span>
+        </div>
+      </details>
+    </div>
+  {/if}
+</section>
+
+<section class="portable" aria-labelledby="portable-heading">
+  <h3 id="portable-heading">Share or back up</h3>
+  <p class="hint">Export a saved run as JSON, or paste one from another machine.</p>
   <div class="row">
     <button
       onclick={() => (portableText = exportLoadedExperiment())}
       disabled={!$loadedExperiment}
     >
-      Export
+      Export JSON
     </button>
     <button onclick={() => importPortable(portableText)} disabled={portableText.trim() === ''}>
-      Import
+      Import JSON
     </button>
   </div>
   <textarea
     bind:value={portableText}
     rows="5"
     spellcheck="false"
-    placeholder="Paste a portable experiment document"
-    aria-label="Portable experiment document"
+    placeholder="Paste saved run JSON here"
+    aria-label="Saved run JSON"
   ></textarea>
+</section>
 
 <style>
-  h2 {
-    margin: 14px 0 6px;
+  h3 {
+    margin: 0 0 4px;
+    color: var(--text);
     font-size: 12px;
     font-weight: 600;
-    color: var(--muted);
   }
 
   .hint {
@@ -131,6 +154,7 @@
 
   .row input {
     flex: 1;
+    min-width: 0;
   }
 
   .list {
@@ -157,6 +181,23 @@
     padding-top: 6px;
   }
 
+  .loaded-heading {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 2px 0 4px;
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .loaded-heading strong {
+    overflow: hidden;
+    color: var(--text);
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .stat {
     display: flex;
     justify-content: space-between;
@@ -176,15 +217,46 @@
     margin: 6px 0;
   }
 
+  .notice {
+    margin: 7px 0 0;
+    border-left: 2px solid var(--line-strong);
+    padding: 3px 0 3px 8px;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.4;
+  }
+
   .warnings {
     margin: 6px 0 0;
     padding: 6px 8px 6px 22px;
     list-style: disc;
-    border: 1px solid var(--raw);
+    border: 1px solid var(--line-strong);
     border-radius: var(--radius);
-    background: color-mix(in srgb, var(--raw) 12%, var(--surface));
+    background: color-mix(in srgb, var(--line-strong) 12%, var(--surface));
     font-size: 11px;
     color: var(--text);
+  }
+
+  .metadata {
+    margin-top: 8px;
+    border-top: 1px solid var(--line);
+    padding-top: 7px;
+  }
+
+  .metadata summary {
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 11px;
+  }
+
+  .metadata .stat {
+    margin-top: 4px;
+  }
+
+  .portable {
+    margin-top: 16px;
+    border-top: 1px solid var(--line);
+    padding-top: 12px;
   }
 
   textarea {

@@ -86,6 +86,11 @@ pub fn match_pair(
         workspace
             .match_once_traced(|snapshot| captured.push(convert_iteration(snapshot)))
             .map_err(|error| error.to_string())?;
+        // The library also traces the six restart branches. They are useful
+        // for low-level diagnostics, but they are not sequential solver
+        // iterations: each branch starts again at iteration zero. Keep the
+        // primary path here so the UI stepper has one unambiguous sequence.
+        captured.retain(|iteration| !iteration.restart);
         (Some(captured), start.elapsed().as_secs_f64() * 1e3)
     } else {
         (None, 0.0)

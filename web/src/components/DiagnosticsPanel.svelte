@@ -24,8 +24,15 @@
     return total <= 1 ? width / 2 : (index / (total - 1)) * width;
   }
 
+  function markerY(value: number, values: number[], height: number): number {
+    const max = Math.max(...values);
+    const min = Math.min(...values);
+    const span = max - min || 1;
+    return height - ((value - min) / span) * height;
+  }
+
   const CHART_W = 320;
-  const CHART_H = 56;
+  const CHART_H = 72;
 
   const uncertainty = $derived.by(() => {
     const frame = $activeFrame;
@@ -62,7 +69,7 @@
           <polyline points={polyline(iterations.map((i) => i.error), CHART_W, CHART_H)} />
           <circle
             cx={markerX(selected, count, CHART_W)}
-            cy={CHART_H - ((iteration?.error ?? 0) / (Math.max(...iterations.map((i) => i.error)) || 1)) * CHART_H}
+            cy={markerY(iteration?.error ?? 0, iterations.map((i) => i.error), CHART_H)}
             r="3"
           />
         </svg>
@@ -77,7 +84,7 @@
           <circle
             class="count"
             cx={markerX(selected, count, CHART_W)}
-            cy={CHART_H - ((iteration?.valid_correspondences ?? 0) / (Math.max(...iterations.map((i) => i.valid_correspondences)) || 1)) * CHART_H}
+            cy={markerY(iteration?.valid_correspondences ?? 0, iterations.map((i) => i.valid_correspondences), CHART_H)}
             r="3"
           />
         </svg>
@@ -92,7 +99,7 @@
         step="1"
         value={selected}
         oninput={(event) => traceIteration.set(Number(event.currentTarget.value))}
-        aria-label="Trace iteration"
+        aria-label="Inspect matcher iteration"
       />
       <span class="readout mono">
         iteration {selected + 1} / {count}
@@ -108,30 +115,28 @@
     {/if}
 
     <p class="note">
-      Residual is the matcher's internal fitting error, not accuracy. Truth-based translation and
-      rotation error above are the accuracy. Tracing is opt-in and does not change the match result.
+      Residual is the matcher's internal fitting error, not accuracy. The result metrics below show
+      truth-based translation and rotation error. Tracing does not change the match result.
     </p>
   </div>
 {/if}
 
 <style>
   .diagnostics {
-    border-top: 1px solid var(--line);
-    background: var(--surface-2);
-    padding: 8px 14px 4px;
+    padding-top: 12px;
     display: grid;
-    gap: 8px;
+    gap: 12px;
   }
 
   .charts {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 20px;
+    display: grid;
+    gap: 12px;
   }
 
   .chart {
     display: grid;
     gap: 2px;
+    min-width: 0;
   }
 
   .k {
@@ -140,8 +145,9 @@
   }
 
   svg {
-    width: 320px;
-    height: 56px;
+    display: block;
+    width: 100%;
+    height: 72px;
     background: var(--plot);
     border: 1px solid var(--line);
     border-radius: var(--radius);
@@ -149,34 +155,30 @@
 
   polyline {
     fill: none;
-    stroke: var(--aligned);
+    stroke: var(--scan-solver);
     stroke-width: 1.5;
     vector-effect: non-scaling-stroke;
   }
 
   polyline.count {
-    stroke: var(--raw);
+    stroke: var(--scan-sensor);
   }
 
   circle {
-    fill: var(--aligned);
+    fill: var(--scan-solver);
   }
 
   circle.count {
-    fill: var(--raw);
+    fill: var(--scan-sensor);
   }
 
   .step {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
+    display: grid;
+    gap: 6px;
   }
 
   .step input {
-    flex: 1;
-    min-width: 160px;
-    max-width: 420px;
+    width: 100%;
   }
 
   .readout {
@@ -190,12 +192,13 @@
   }
 
   .uncertainty.ok { color: var(--text); }
-  .uncertainty.warn { color: var(--raw); }
+  .uncertainty.warn { color: var(--muted); }
   .uncertainty.muted { color: var(--muted); }
 
   .note {
     margin: 0;
     font-size: 11px;
+    line-height: 1.4;
     color: var(--muted);
   }
 </style>

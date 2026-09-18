@@ -18,21 +18,32 @@ vi.mock('./api', async (importOriginal) => {
   return { ...actual, ...mocks };
 });
 
-import { DEFAULT_MATCHER, type FrameResponse, type RunRequest } from './api';
+import {
+  DEFAULT_MATCHER,
+  type FrameResponse,
+  type PreviewResponse,
+  type RunRequest,
+  type TraceIteration,
+} from './api';
 import {
   abMode,
   activeFrame,
   generation,
   matcher,
   outdated,
+  placed,
+  placeScan,
+  placing,
+  preview,
   referenceMode,
+  resetPlacement,
   result,
   run,
-  sequence,
-  sequenceIndex,
-  sequenceMode,
+  setStepMode,
+  stepMode,
+  stepTarget,
+  traceIteration,
   setAbMode,
-  setSequenceMode,
   view,
 } from './state';
 
@@ -66,6 +77,18 @@ function frame(overrides: Partial<FrameResponse> = {}): FrameResponse {
     extent: 7,
     segments: [],
     ...overrides,
+  };
+}
+
+function previewData(): PreviewResponse {
+  return {
+    reference: [[0, 0]],
+    sensor_unaligned: [[1, 0]],
+    sensor_true: [[1, 0]],
+    truth_pose: [1, 0, 0],
+    initial_pose: [1, 0, 0],
+    extent: 7,
+    segments: [],
   };
 }
 
@@ -116,9 +139,13 @@ beforeEach(() => {
   mocks.previewFrame.mockRejectedValue(new Error('no preview in tests'));
 
   result.set(null);
-  sequence.set(null);
-  sequenceIndex.set(0);
-  sequenceMode.set(false);
+  preview.set(null);
+  stepMode.set(false);
+  stepTarget.set(0);
+  traceIteration.set(0);
+  outdated.set(false);
+  placed.set(false);
+  placing.set(false);
   abMode.set(false);
   referenceMode.set('fixed');
   matcher.set({ ...DEFAULT_MATCHER });
@@ -140,8 +167,11 @@ it('marks results outdated when the inputs change', async () => {
   await run();
   expect(get(outdated)).toBe(false);
 
+  preview.set(previewData());
   generation.update((current) => ({ ...current, noise: current.noise + 0.05 }));
   expect(get(outdated)).toBe(true);
+  expect(get(result)).toBe(null);
+  expect(get(preview)).not.toBe(null);
 });
 
 it('does not let a late response overwrite a newer result', async () => {
@@ -167,6 +197,24 @@ it('does not let a late response overwrite a newer result', async () => {
   expect(get(result)?.request_id).toBe(firstId + 1);
 });
 
+it('keeps hand placement separate from matching', () => {
+  preview.set(previewData());
+  placing.set(true);
+
+  placeScan([0.4, -0.3, 0.05]);
+
+  expect(get(placed)).toBe(true);
+  expect(get(placing)).toBe(true);
+  expect(get(preview)?.initial_pose).toEqual([0.4, -0.3, 0.05]);
+  expect(get(preview)?.sensor_unaligned).toEqual([[0.4, -0.3]]);
+  expect(mocks.runFrame).not.toHaveBeenCalled();
+
+  resetPlacement();
+
+  expect(get(placed)).toBe(false);
+  expect(mocks.runFrame).not.toHaveBeenCalled();
+});
+
 it('shares one set of inputs across A and B', async () => {
   setAbMode(true);
   await run();
@@ -177,29 +225,47 @@ it('shares one set of inputs across A and B', async () => {
   expect(current?.reference).toEqual([[0, 0]]);
 });
 
-it('reveals the selected sequence frame diagnostics', async () => {
-  // Establish a current result so the sequence view is not flagged outdated.
-  await run();
-  setSequenceMode(true);
-  sequence.set({
-    referenceMode: 'fixed',
-    truth: [
-      [0, 0],
-      [1, 1],
-    ],
-    estimate: [
-      [0, 0],
-      [1, 1],
-    ],
-    frames: [
-      frame({ termination: 'Converged', accepted: true }),
-      frame({ termination: 'NoCorrespondences', accepted: false }),
-    ],
-  });
+it('runs step mode one matcher iteration at a time', async () => {
+  const trace: TraceIteration[] = [
+    {
+      iteration: 1,
+      pose: [0.2, 0, 0],
+      error: 0.2,
+      valid_correspondences: 4,
+      restart: false,
+      correspondences: [],
+    },
+    {
+      iteration: 2,
+      pose: [0.4, 0, 0],
+      error: 0.1,
+      valid_correspondences: 5,
+      restart: false,
+      correspondences: [],
+    },
+  ];
+  mocks.runFrame.mockImplementation(async (request: RunRequest) =>
+    frame({
+      request_id: request.request_id,
+      iterations: request.matcher.max_iterations,
+      termination: 'IterationLimit',
+      trace: trace.slice(0, request.matcher.max_iterations),
+    }),
+  );
 
-  sequenceIndex.set(0);
-  expect(get(activeFrame)?.termination).toBe('Converged');
-  sequenceIndex.set(1);
-  expect(get(activeFrame)?.termination).toBe('NoCorrespondences');
-  expect(get(view)?.rejected).toBe(true);
+  setStepMode(true);
+  await run();
+  expect(mocks.runFrame.mock.calls[0][0].matcher.max_iterations).toBe(1);
+  expect(mocks.runFrame.mock.calls[0][0].trace).toBe(true);
+  expect(get(stepTarget)).toBe(1);
+
+  await run();
+  expect(mocks.runFrame.mock.calls[1][0].matcher.max_iterations).toBe(2);
+  expect(get(stepTarget)).toBe(2);
+
+  traceIteration.set(0);
+  expect(get(activeFrame)?.trace?.length).toBe(2);
+  expect(get(view)?.estimated_pose).toEqual([0.2, 0, 0]);
+  traceIteration.set(1);
+  expect(get(view)?.estimated_pose).toEqual([0.4, 0, 0]);
 });

@@ -1,8 +1,8 @@
 # csm-rs demo
 
-A local browser demo that runs the real `csm-rs` matcher on every frame. It
-ray-casts ordered scans from a moving sensor and draws the reference, unaligned,
-and aligned scans with the true and estimated motion.
+A local browser demo that runs the real `csm-rs` matcher on an explicit run. It
+ray-casts ordered scans from a moving sensor and draws the reference and sensor
+scans with the true and estimated motion.
 
 ## Run
 
@@ -27,23 +27,24 @@ cargo run --locked --release -- 0.0.0.0:8080
 
 ## Features
 
-- A desktop-first workbench: examples and generation controls on the left, the
-  scan plot in the centre, matcher settings on the right, diagnostics below.
-- Explicit Run, with results marked outdated when their inputs change. Stale
-  responses cannot overwrite newer results.
+- A desktop-first workbench organised as Prepare, Place, Match, and Inspect:
+  the scan plot stays central while the active step owns the controls.
+- Generated previews stay separate from explicit Run. Changing an input clears
+  the old result before the new preview arrives, and stale responses cannot
+  overwrite newer results.
 - Truth-based translation and rotation error, acceptance/termination, and
   ordinary runtime reported separately from instrumented timing.
 - Fixed-reference and previous-frame matching policies; the previous-frame
   policy reports accumulated drift.
 - Three scenarios (asymmetric room, ambiguous corridor, partial overlap) and a
   matcher settings panel.
-- Opt-in iteration inspection showing real matcher iterations and
-  correspondences, with instrumented timing reported separately.
-- Import of ordered polar/Cartesian scan pairs, versioned session export, and
-  replay.
-- Place scan: turn on placement in the plot, drag the raw scan to move it and
-  shift-drag to rotate it, then release to re-run from where you put it. Reset
-  placement returns to the generated guess.
+- Single-run and step-through modes. Step-through requests one more matcher
+  iteration per click and exposes the real iteration trace and correspondences.
+- Import of ordered polar/Cartesian scan pairs, named saved runs, portable JSON
+  export, and replay.
+- Place scan: choose the Place step, drag the sensor scan to move it and
+  shift-drag to rotate it, then release to save the pose. Matching stays
+  explicit in the Match step. Reset placement returns to the generated guess.
 
 The server is stateless: every `POST /api/frame` regenerates the seeded scans
 for the requested step and runs the matcher. Imported data has no ground truth,
@@ -67,9 +68,15 @@ npm test        # vitest: browser-level behaviour jsdom can establish
 For live reload, run the backend with `cargo run` and start `npm run dev`;
 Vite proxies `/api` to `127.0.0.1:7878`.
 
-The workspace is resizable (drag the handles, or focus one and use the arrow
-keys), the side panels collapse on narrow screens, and both light and dark
-themes are defined as design tokens shared by the plot, legend, and metrics.
+The workspace uses a four-step workflow rail, collapses to a stacked layout on
+narrow screens, and both light and dark themes are defined as design tokens
+shared by the plot, legend, and metrics.
+
+The plot uses a neutral interface with restrained colour reserved for scan
+identity: reference, sensor, candidate B, and ground-truth scans. Scene boundary
+segments are kept as backend context and are not presented as an editable plot
+layer. The scene sample control and the matcher iteration stepper are separate:
+the former changes generated input, while the latter advances the solver.
 
 ## Development
 
