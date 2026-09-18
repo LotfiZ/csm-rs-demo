@@ -110,7 +110,7 @@
 
   function chooseStep(step: StepId) {
     activeStep = step;
-    setPlacing(step === 'place');
+    setPlacing(step === 'place' && !$importMode);
   }
 
   function toggleAb() {
@@ -273,38 +273,49 @@
           <div class="inspector-heading">
             <p class="step-caption">Step 02</p>
             <h2>Place the scan</h2>
-            <p>Give the matcher a starting pose. Moving the scan updates the preview only.</p>
+            {#if $importMode}
+              <p>Imported pairs keep the pose supplied in their scan document.</p>
+            {:else}
+              <p>Give the matcher a starting pose. Moving the scan updates the preview only.</p>
+            {/if}
           </div>
 
-          <div class="gesture-card">
-            <div class="gesture-row">
-              <span class="gesture-key mono">drag</span>
-              <span>move the sensor scan</span>
-            </div>
-            <div class="gesture-row">
-              <span class="gesture-key mono">shift + drag</span>
-              <span>rotate the sensor</span>
-            </div>
-          </div>
-
-          {#if $placing}
-            <button class="primary" onclick={() => setPlacing(false)}>Validate pose</button>
-            <p class="small-note">Move the scan as many times as needed, then validate when it feels right.</p>
-          {:else}
-            <button class="primary" onclick={() => setPlacing(true)}>Edit pose</button>
-          {/if}
-
-          {#if $placed}
-            <div class="pose-status">
-              <span class="pose-indicator"></span>
-              <span>Manual pose saved for the next run.</span>
-            </div>
-            <button class="secondary wide" onclick={resetPlacement}>Reset to generated guess</button>
-          {:else}
+          {#if $importMode}
             <div class="pose-status pending">
               <span class="pose-indicator"></span>
-              <span>Using the generated initial guess.</span>
+              <span>Manual placement is available for generated examples.</span>
             </div>
+          {:else}
+            <div class="gesture-card">
+              <div class="gesture-row">
+                <span class="gesture-key mono">drag</span>
+                <span>move the sensor scan</span>
+              </div>
+              <div class="gesture-row">
+                <span class="gesture-key mono">shift + drag</span>
+                <span>rotate the sensor</span>
+              </div>
+            </div>
+
+            {#if $placing}
+              <button class="primary" onclick={() => setPlacing(false)}>Validate pose</button>
+              <p class="small-note">Move the scan as many times as needed, then validate when it feels right.</p>
+            {:else}
+              <button class="primary" onclick={() => setPlacing(true)}>Edit pose</button>
+            {/if}
+
+            {#if $placed}
+              <div class="pose-status">
+                <span class="pose-indicator"></span>
+                <span>Manual pose saved for the next run.</span>
+              </div>
+              <button class="secondary wide" onclick={resetPlacement}>Reset to generated guess</button>
+            {:else}
+              <div class="pose-status pending">
+                <span class="pose-indicator"></span>
+                <span>Using the generated initial guess.</span>
+              </div>
+            {/if}
           {/if}
 
           <div class="next-row">

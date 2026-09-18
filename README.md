@@ -40,8 +40,7 @@ cargo run --locked --release -- 0.0.0.0:8080
   matcher settings panel.
 - Single-run and step-through modes. Step-through requests one more matcher
   iteration per click and exposes the real iteration trace and correspondences.
-- Import of ordered polar/Cartesian scan pairs, named saved runs, portable JSON
-  export, and replay.
+- Import of ordered polar/Cartesian scan pairs, named saved runs, and replay.
 - Place scan: choose the Place step, drag the sensor scan to move it and
   shift-drag to rotate it, then release to save the pose. Matching stays
   explicit in the Match step. Reset placement returns to the generated guess.

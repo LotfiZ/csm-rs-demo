@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   runFrame: vi.fn(),
   compareFrame: vi.fn(),
   previewFrame: vi.fn(),
+  importScanPair: vi.fn(),
 }));
 
 vi.mock('./api', async (importOriginal) => {
@@ -21,6 +22,7 @@ vi.mock('./api', async (importOriginal) => {
 import {
   DEFAULT_MATCHER,
   type FrameResponse,
+  type ImportResponse,
   type PreviewResponse,
   type RunRequest,
   type TraceIteration,
@@ -29,6 +31,9 @@ import {
   abMode,
   activeFrame,
   generation,
+  importMode,
+  importPair,
+  imported,
   matcher,
   outdated,
   placed,
@@ -137,9 +142,28 @@ beforeEach(() => {
   );
   mocks.previewFrame.mockReset();
   mocks.previewFrame.mockRejectedValue(new Error('no preview in tests'));
+  mocks.importScanPair.mockReset();
+  mocks.importScanPair.mockResolvedValue({
+    reference: [[10, 0]],
+    sensor_unaligned: [[1, 0]],
+    sensor_aligned: [[10, 0]],
+    initial_pose: [0, 0, 0],
+    estimated_pose: [9, 0, 0],
+    valid: true,
+    accepted: true,
+    termination: 'Converged',
+    iterations: 2,
+    nvalid: 1,
+    error: 0.01,
+    covariance_status: 'Disabled',
+    covariance: null,
+    extent: 12,
+  } satisfies ImportResponse);
 
   result.set(null);
   preview.set(null);
+  importMode.set(false);
+  imported.set(null);
   stepMode.set(false);
   stepTarget.set(0);
   traceIteration.set(0);
@@ -213,6 +237,18 @@ it('keeps hand placement separate from matching', () => {
 
   expect(get(placed)).toBe(false);
   expect(mocks.runFrame).not.toHaveBeenCalled();
+});
+
+it('keeps imported scans active while placing them', async () => {
+  await importPair(JSON.stringify({ format: 'csm-rs-scan-pair', version: 1 }));
+  expect(get(importMode)).toBe(true);
+  expect(get(imported)).not.toBe(null);
+
+  placing.set(true);
+  placeScan([0.4, -0.3, 0.05]);
+
+  expect(get(importMode)).toBe(true);
+  expect(get(imported)).not.toBe(null);
 });
 
 it('shares one set of inputs across A and B', async () => {

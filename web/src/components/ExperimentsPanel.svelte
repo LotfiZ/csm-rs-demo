@@ -2,9 +2,7 @@
   import {
     experiments,
     experimentWarnings,
-    exportLoadedExperiment,
     importMode,
-    importPortable,
     loadedExperiment,
     openExperiment,
     rerunLoadedExperiment,
@@ -13,7 +11,6 @@
   } from '../lib/state';
 
   let name = $state('');
-  let portableText = $state('');
 
   const delta = $derived.by(() => {
     const doc = $loadedExperiment;
@@ -108,29 +105,6 @@
       </details>
     </div>
   {/if}
-</section>
-
-<section class="portable" aria-labelledby="portable-heading">
-  <h3 id="portable-heading">Share or back up</h3>
-  <p class="hint">Export a saved run as JSON, or paste one from another machine.</p>
-  <div class="row">
-    <button
-      onclick={() => (portableText = exportLoadedExperiment())}
-      disabled={!$loadedExperiment}
-    >
-      Export JSON
-    </button>
-    <button onclick={() => importPortable(portableText)} disabled={portableText.trim() === ''}>
-      Import JSON
-    </button>
-  </div>
-  <textarea
-    bind:value={portableText}
-    rows="5"
-    spellcheck="false"
-    placeholder="Paste saved run JSON here"
-    aria-label="Saved run JSON"
-  ></textarea>
 </section>
 
 <style>
@@ -253,22 +227,4 @@
     margin-top: 4px;
   }
 
-  .portable {
-    margin-top: 16px;
-    border-top: 1px solid var(--line);
-    padding-top: 12px;
-  }
-
-  textarea {
-    width: 100%;
-    margin-top: 6px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--text);
-    background: var(--surface-2);
-    border: 1px solid var(--line-strong);
-    border-radius: var(--radius);
-    padding: 6px;
-    resize: vertical;
-  }
 </style>

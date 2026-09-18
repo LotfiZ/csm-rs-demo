@@ -280,6 +280,11 @@ function movePoint(
 
 /** Commit a hand-placed scan as the explicit initial guess. Matching stays explicit. */
 export function placeScan(pose: [number, number, number]) {
+  // Imported pairs already contain their own matcher result and do not use the
+  // generated scene state. Do not let a placement callback switch the view
+  // back to a generated scenario.
+  if (get(importMode) && get(imported)) return;
+
   generation.update((current) => ({ ...current, initial_guess: pose }));
   // Keep the already rendered cloud in the new pose while the lightweight
   // generation preview catches up. Move the points as well as the metadata;
@@ -337,6 +342,8 @@ export async function importPair(text: string) {
     const response = await importScanPair(pair);
     imported.set(response);
     importMode.set(true);
+    placing.set(false);
+    placed.set(false);
     result.set(null);
     compare.set(null);
     benchmark.set(null);
