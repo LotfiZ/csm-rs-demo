@@ -20,8 +20,7 @@ cargo clippy --locked --all-targets --all-features -- -D warnings
 ```
 
 For UI changes, also run `npm ci`, `npm run check`, `npm test`, and
-`npm run build` in `web/`. The build output in `web/dist` is generated locally
-for verification and is not committed; CI rebuilds it from source.
+`npm run build` in `web/`. 
 
 ## Preparing a release
 
