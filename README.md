@@ -55,8 +55,8 @@ Direct sensor connections, ROS integration, and public hosting are out of scope.
 
 ## Frontend development
 
-The UI uses Svelte, TypeScript, and Vite under `web/`. Use Node.js 22 and npm,
-matching CI. From the repository root:
+The UI uses Svelte, TypeScript, and Vite under `web/`. Use Node.js 22.12 or
+newer and npm, matching CI. From the repository root:
 
 ```sh
 cd web
@@ -100,4 +100,6 @@ The matcher is a Rust port of Andrea Censi's
 originally developed in [csm-rs](https://github.com/LotfiZ/csm-rs); earlier history
 is retained there.
 
-Distributed under **LGPL-3.0-only**. See [LICENSE](LICENSE).
+Distributed under **LGPL-3.0-only**. See [LICENSE](LICENSE) and the accompanying
+[GPLv3 text](COPYING), which the LGPL incorporates. The bundled IBM Plex fonts
+are under the [SIL Open Font License 1.1](THIRD_PARTY_LICENSES/).
