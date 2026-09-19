@@ -1,5 +1,7 @@
 # csm-rs demo
 
+[![CI](https://github.com/LotfiZ/csm-rs-demo/workflows/CI/badge.svg)](https://github.com/LotfiZ/csm-rs-demo/actions/workflows/ci.yml)
+
 An interactive browser demo for [csm-rs](https://github.com/LotfiZ/csm-rs),
 a Rust port of Andrea Censi's Canonical Scan Matcher. Generate or import ordered
 2D scans, set an initial pose, and inspect the match and its iteration trace.
