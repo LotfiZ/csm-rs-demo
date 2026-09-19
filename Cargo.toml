@@ -8,7 +8,7 @@ repository = "https://github.com/LotfiZ/csm-rs-demo"
 description = "Local interactive demonstration for the csm-rs library"
 
 [dependencies]
-csm-rs = { git = "https://github.com/LotfiZ/csm-rs.git", rev = "ce434638699ab495ddd96937d674a0823f36e9e9" }
+csm-rs = { git = "https://github.com/LotfiZ/csm-rs.git", rev = "dfcfd9c420d7dd6873506707d339827ab69537b9" }
 axum = "0.8"
 tower-http = { version = "0.6", features = ["fs"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
