@@ -101,5 +101,4 @@ originally developed in [csm-rs](https://github.com/LotfiZ/csm-rs); earlier hist
 is retained there.
 
 Distributed under **LGPL-3.0-only**. See [LICENSE](LICENSE) and the accompanying
-[GPLv3 text](COPYING), which the LGPL incorporates. The bundled IBM Plex fonts
-are under the [SIL Open Font License 1.1](THIRD_PARTY_LICENSES/).
+[GPLv3 text](COPYING), which the LGPL incorporates.
