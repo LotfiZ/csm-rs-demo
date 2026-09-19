@@ -48,8 +48,6 @@
   type Step = {
     id: StepId;
     label: string;
-    title: string;
-    description: string;
     detail: string;
   };
 
@@ -57,37 +55,27 @@
     {
       id: 'prepare',
       label: 'Prepare',
-      title: 'Prepare the scene',
-      description: 'Choose an example and shape the generated scans.',
       detail: 'Choose a scene',
     },
     {
       id: 'place',
       label: 'Place',
-      title: 'Place the scan',
-      description: 'Set the starting pose by moving the sensor on the plot.',
       detail: 'Set the initial pose',
     },
     {
       id: 'match',
       label: 'Match',
-      title: 'Run the matcher',
-      description: 'Choose a run mode and start the solver when the inputs are ready.',
       detail: 'Run the solver',
     },
     {
       id: 'inspect',
       label: 'Inspect',
-      title: 'Inspect the result',
-      description: 'Read the outcome, accuracy, and solver diagnostics.',
       detail: 'Read the result',
     },
   ];
 
   let activeStep = $state<StepId>('prepare');
 
-  const stage = $derived(steps.find((step) => step.id === activeStep) ?? steps[0]);
-  const stageNumber = $derived(steps.findIndex((step) => step.id === activeStep) + 1);
   const hasResult = $derived(Boolean($activeFrame || $compare || ($importMode && $imported)));
   const resultLabel = $derived.by(() => {
     if ($activeFrame?.accepted) return 'accepted';
@@ -219,38 +207,11 @@
       </div>
     </nav>
 
-    <main class="stage">
-      <div class="stage-head">
-        <div class="stage-copy">
-          <p class="step-caption"><span class="step-marker mono">0{stageNumber}</span>{stage.label}</p>
-          <h1>{stage.title}</h1>
-          <p>{stage.description}</p>
-        </div>
-        <div class="stage-state">
-          {#if $running}
-            <span class="state-pill busy">running</span>
-          {:else if $outdated}
-            <span class="state-pill warn">needs a run</span>
-          {:else if hasResult}
-            <span class="state-pill ready">{resultLabel}</span>
-          {:else}
-            <span class="state-pill">preview</span>
-          {/if}
-          {#if $placed}
-            <span class="pose-state">manual pose set</span>
-          {/if}
-        </div>
-      </div>
+    <main class="stage" aria-label="Scan workspace">
+      <h1 class="visually-hidden">Scan matching lab</h1>
 
       <div class="plot-frame">
         <Plot />
-      </div>
-
-      <div class="stage-footer">
-        <p><span class="mono">drag</span> pan · <span class="mono">scroll</span> zoom · <span class="mono">0</span> reset</p>
-        {#if $outdated}
-          <span class="footer-alert">Inputs changed. Run when ready.</span>
-        {/if}
       </div>
     </main>
 
@@ -699,56 +660,6 @@
     background: var(--bg);
   }
 
-  .stage-head {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 20px;
-    padding: 22px 28px 16px;
-  }
-
-  .stage-copy {
-    min-width: 0;
-  }
-
-  .step-caption {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin: 0 0 8px;
-    color: var(--muted);
-    font-size: 11px;
-  }
-
-  .step-marker {
-    color: var(--text);
-  }
-
-  .stage-copy h1 {
-    margin: 0;
-    font-size: clamp(22px, 2vw, 30px);
-    font-weight: 500;
-    letter-spacing: -0.035em;
-    line-height: 1.05;
-  }
-
-  .stage-copy > p:last-child {
-    max-width: 48ch;
-    margin: 8px 0 0;
-    color: var(--muted);
-    font-size: 13px;
-  }
-
-  .stage-state {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 7px;
-    flex-wrap: wrap;
-    padding-top: 25px;
-    text-align: right;
-  }
-
   .state-pill {
     display: inline-flex;
     align-items: center;
@@ -765,48 +676,26 @@
     color: var(--surface);
   }
 
-  .state-pill.warn {
-    border-color: var(--ink);
-    color: var(--text);
-  }
-
-  .state-pill.busy {
-    border-style: dashed;
-    color: var(--text);
-  }
-
-  .pose-state {
-    color: var(--muted);
-    font-size: 10px;
-  }
-
   .plot-frame {
     position: relative;
     flex: 1;
     min-height: 0;
-    margin: 0 16px;
+    margin: 0;
     overflow: hidden;
-    border: 1px solid var(--line-strong);
+    border: 0;
     background: var(--plot);
   }
 
-  .stage-footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    min-height: 40px;
-    padding: 8px 28px;
-    color: var(--muted);
-    font-size: 10px;
-  }
-
-  .stage-footer p {
-    margin: 0;
-  }
-
-  .footer-alert {
-    color: var(--text);
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 
   .inspector {
@@ -1163,13 +1052,6 @@
       padding-inline: 18px;
     }
 
-    .stage-head {
-      padding-inline: 20px;
-    }
-
-    .stage-footer {
-      padding-inline: 20px;
-    }
   }
 
   @media (max-width: 860px) {
@@ -1263,29 +1145,8 @@
       min-height: 420px;
     }
 
-    .stage-head {
-      padding: 16px 14px 12px;
-    }
-
-    .stage-copy h1 {
-      font-size: 24px;
-    }
-
-    .stage-state {
-      padding-top: 21px;
-    }
-
     .plot-frame {
       min-height: 260px;
-      margin-inline: 10px;
-    }
-
-    .stage-footer {
-      padding-inline: 14px;
-    }
-
-    .stage-footer .footer-alert {
-      display: none;
     }
 
     .inspector {

@@ -75,7 +75,7 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 [[package]]
 name = "csm-rs"
 version = "0.1.0"
-source = "git+https://github.com/LotfiZ/csm-rs.git?rev=5c78370549e3f1cc119fa81a56c2fbe727ca90ff#5c78370549e3f1cc119fa81a56c2fbe727ca90ff"
+source = "git+https://github.com/LotfiZ/csm-rs.git?rev=ce434638699ab495ddd96937d674a0823f36e9e9#ce434638699ab495ddd96937d674a0823f36e9e9"
 
 [[package]]
 name = "csm-rs-demo"

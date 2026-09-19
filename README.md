@@ -1,81 +1,74 @@
 # csm-rs demo
 
-A local browser demo that runs the real `csm-rs` matcher on an explicit run. It
-ray-casts ordered scans from a moving sensor and draws the reference and sensor
-scans with the true and estimated motion.
+An interactive browser demo for [csm-rs](https://github.com/LotfiZ/csm-rs),
+a Rust port of Andrea Censi's Canonical Scan Matcher. Generate or import ordered
+2D scans, set an initial pose, and inspect the match and its iteration trace.
 
-## Run
+Experimental, with best-effort support. The demo runs on a local Rust server.
 
-Requires a stable Rust toolchain.
-Clone it, then run from the repository root:
+## Requirements
+
+Git and a stable Rust toolchain. Built frontend assets are included; Node.js is
+only needed when changing the UI.
+
+## Installation
 
 ```sh
 git clone https://github.com/LotfiZ/csm-rs-demo.git
 cd csm-rs-demo
 ```
 
+## Configuration
+
+Named runs are saved on the server in `data/experiments`, relative to the working
+directory. Set `CSM_DEMO_DATA` to use another directory. Saved runs survive
+server restarts; keep that directory to retain them.
+
+## Quick start
+
 ```sh
 cargo run --locked --release
 ```
 
-Then open <http://127.0.0.1:7878>. Pass an address to use another interface or
-port:
+Open <http://127.0.0.1:7878>. To use another local port:
 
 ```sh
-cargo run --locked --release -- 0.0.0.0:8080
+cargo run --locked --release -- 127.0.0.1:8080
 ```
 
 ## Features
 
-- A desktop-first workbench organised as Prepare, Place, Match, and Inspect:
-  the scan plot stays central while the active step owns the controls.
-- Generated previews stay separate from explicit Run. Changing an input clears
-  the old result before the new preview arrives, and stale responses cannot
-  overwrite newer results.
-- Truth-based translation and rotation error, acceptance/termination, and
-  ordinary runtime reported separately from instrumented timing.
-- Fixed-reference and previous-frame matching policies; the previous-frame
-  policy reports accumulated drift.
-- Three scenarios (asymmetric room, ambiguous corridor, partial overlap) and a
-  matcher settings panel.
-- Single-run and step-through modes. Step-through requests one more matcher
-  iteration per click and exposes the real iteration trace and correspondences.
-- Import of ordered polar/Cartesian scan pairs, named saved runs, and replay.
-- Place scan: choose the Place step, drag the sensor scan to move it and
-  shift-drag to rotate it, then release to save the pose. Matching stays
-  explicit in the Match step. Reset placement returns to the generated guess.
+- A Prepare, Place, Match, and Inspect workflow with explicit matching runs.
+- Generated asymmetric-room, ambiguous-corridor, and partial-overlap scenarios,
+  plus import of ordered polar or Cartesian scan pairs.
+- Interactive initial-pose placement: drag to translate and shift-drag to rotate.
+- Single-run and iteration-by-iteration matching with correspondence inspection.
+- Truth-based translation and rotation errors for generated scans, termination
+  reasons, and fixed-reference or previous-frame policies with accumulated drift.
+- Named saved runs and replay, including scans and configuration.
 
-The server is stateless: every `POST /api/frame` regenerates the seeded scans
-for the requested step and runs the matcher. Imported data has no ground truth,
-so responses show the matcher result only. Direct sensor connections, ROS
-integration, and public hosting are out of scope.
+Each frame request regenerates its seeded scans and runs the matcher; named
+experiments are persisted separately. Imported scans have no ground truth.
+Direct sensor connections, ROS integration, and public hosting are out of scope.
 
-## Frontend
+## Frontend development
 
-The UI is a Vite + Svelte + TypeScript app under `web/`. The built assets in
-`web/dist` are committed, so `cargo run` serves a working app without a Node
-toolchain. To change the UI:
+The UI uses Svelte, TypeScript, and Vite under `web/`. Use Node.js 22 and npm,
+matching CI. From the repository root:
 
 ```sh
 cd web
-npm install
+npm ci
+npm run check
+npm test
 npm run build
-npm run check   # svelte-check
-npm test        # vitest: browser-level behaviour jsdom can establish
 ```
 
-For live reload, run the backend with `cargo run` and start `npm run dev`;
-Vite proxies `/api` to `127.0.0.1:7878`.
+For live reload, run `cargo run` from the repository root in one terminal and
+`npm run dev` from `web/` in another. Vite proxies `/api` to `127.0.0.1:7878`.
 
-The workspace uses a four-step workflow rail, collapses to a stacked layout on
-narrow screens, and both light and dark themes are defined as design tokens
-shared by the plot, legend, and metrics.
-
-The plot uses a neutral interface with restrained colour reserved for scan
-identity: reference, sensor, candidate B, and ground-truth scans. Scene boundary
-segments are kept as backend context and are not presented as an editable plot
-layer. The scene sample control and the matcher iteration stepper are separate:
-the former changes generated input, while the latter advances the solver.
+Commit rebuilt `web/dist` assets alongside frontend changes. CI checks that a
+fresh build matches the committed assets.
 
 ## Development
 
@@ -85,17 +78,25 @@ cargo test --locked --all-targets --all-features
 cargo clippy --locked --all-targets --all-features -- -D warnings
 ```
 
-This application has its own release cycle. It depends on the
-[csm-rs library](https://github.com/LotfiZ/csm-rs) at the Git revision recorded
-in `Cargo.toml`; `Cargo.lock` is committed for reproducible dependency resolution.
-To upgrade the library, change that revision, run `cargo check` to update the
-lockfile, and run the checks above. Commit the manifest and lockfile together.
+The demo has its own release cycle. Its library dependency is pinned in
+`Cargo.toml`, and `Cargo.lock` records dependency resolution. When upgrading:
 
-The initial application was extracted unchanged from `demo/` in csm-rs commit
-`5c78370549e3f1cc119fa81a56c2fbe727ca90ff`. Its earlier history remains in that
-repository. Interface redesign is separate from this extraction.
+1. Update the dependency revision in `Cargo.toml` and `LIBRARY_REVISION` in
+   `src/experiments.rs`, which records provenance in saved runs.
+2. Run `cargo check` to update `Cargo.lock` and run the development checks above.
+3. Include all three files together in the change.
 
+## Changelog and contributions
 
-## License
+See [CHANGELOG.md](CHANGELOG.md) for release notes. Issues and small pull requests
+are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-LGPL-3.0-only, retained from the source repository. See [LICENSE](LICENSE).
+## Credits and license
+
+The matcher is a Rust port of Andrea Censi's
+[Canonical Scan Matcher](https://github.com/AndreaCensi/csm). The demo was
+originally developed in [csm-rs](https://github.com/LotfiZ/csm-rs); earlier history
+is retained there.
+
+Distributed under **LGPL-3.0-only**. See [LICENSE](LICENSE) and the accompanying
+[GNU GPLv3 text](COPYING).
