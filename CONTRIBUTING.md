@@ -20,12 +20,13 @@ cargo clippy --locked --all-targets --all-features -- -D warnings
 ```
 
 For UI changes, also run `npm ci`, `npm run check`, `npm test`, and
-`npm run build` in `web/`. Include rebuilt `web/dist` assets in the PR.
+`npm run build` in `web/`. The build output in `web/dist` is generated locally
+for verification and is not committed; CI rebuilds it from source.
 
 ## Preparing a release
 
 Release the library first, then follow the README dependency-upgrade procedure
-to pin its selected release commit. Run both Rust and frontend checks and include
-all source and rebuilt asset changes. Date the first public changelog entry on
-release day. The demo is distributed from source and versions independently of
-the library.
+to pin its selected release commit. Run both Rust and frontend checks. Date the
+first public changelog entry on release day. The demo is distributed from source
+and versions independently of the library; generate the frontend assets before
+packaging or launching a release build.

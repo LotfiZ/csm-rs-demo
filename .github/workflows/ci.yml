@@ -36,7 +36,7 @@ jobs:
       - run: npm run check
       - run: npm test
       - run: npm run build
-      - name: Verify committed frontend assets
+      - name: Verify generated frontend assets
         run: |
-          git diff --exit-code -- dist
-          test -z "$(git ls-files --others --exclude-standard -- dist)"
+          test -s dist/index.html
+          test -n "$(find dist -type f -print -quit)"

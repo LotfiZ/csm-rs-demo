@@ -10,8 +10,9 @@ Experimental, with best-effort support. The demo runs on a local Rust server.
 
 ## Requirements
 
-Git and a stable Rust toolchain. Built frontend assets are included; Node.js is
-only needed when changing the UI.
+Git, Node.js 22.12 or newer with npm, and a stable Rust toolchain. The Rust
+server serves the production frontend from `web/dist`; generate it before
+starting the server.
 
 ## Installation
 
@@ -27,6 +28,16 @@ directory. Set `CSM_DEMO_DATA` to use another directory. Saved runs survive
 server restarts; keep that directory to retain them.
 
 ## Quick start
+
+From the repository root, install the frontend dependencies and build the
+production assets:
+
+```sh
+npm --prefix web ci
+npm --prefix web run build
+```
+
+Then start the local server:
 
 ```sh
 cargo run --locked --release
@@ -69,8 +80,9 @@ npm run build
 For live reload, run `cargo run` from the repository root in one terminal and
 `npm run dev` from `web/` in another. Vite proxies `/api` to `127.0.0.1:7878`.
 
-Commit rebuilt `web/dist` assets alongside frontend changes. CI checks that a
-fresh build matches the committed assets.
+`web/dist` is generated output and is intentionally ignored by Git. CI builds
+it from the tracked frontend source and verifies that the production entrypoint
+is present.
 
 ## Development
 

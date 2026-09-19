@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Generate production frontend assets during setup and CI instead of tracking
+  `web/dist` in the source repository.
+
 ## 0.1.0 — 2026-09-19
 
 First public release of the interactive demo for csm-rs.

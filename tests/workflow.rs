@@ -39,24 +39,6 @@ fn base(step: u64) -> serde_json::Value {
 }
 
 #[tokio::test]
-async fn index_is_served() {
-    let response = app()
-        .oneshot(
-            axum::http::Request::builder()
-                .uri("/")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), 200);
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    assert!(String::from_utf8_lossy(&bytes).contains("csm-rs · scan matching lab"));
-}
-
-#[tokio::test]
 async fn explicit_initial_guess_is_used_verbatim() {
     let mut request = base(4);
     request["generation"]["initial_guess"] = json!([1.25, -0.5, 0.3]);

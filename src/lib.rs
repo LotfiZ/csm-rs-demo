@@ -44,7 +44,7 @@ pub fn app() -> Router {
 /// Build the router with an explicit experiment directory (used by tests).
 ///
 /// The API routes are served directly; everything else falls through to the
-/// built frontend in `web/dist` (see `web/`).
+/// generated frontend in `web/dist` (build it with `npm --prefix web run build`).
 pub fn app_with_data_dir(data_dir: PathBuf) -> Router {
     let state = AppState {
         data_dir: Arc::new(data_dir),
