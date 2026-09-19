@@ -20,7 +20,7 @@ pub const FORMAT: &str = "csm-rs-workbench-experiment";
 pub const VERSION: u32 = 1;
 /// Pinned csm-rs revision recorded with every experiment. Update alongside
 /// `Cargo.toml` when the library is upgraded.
-const LIBRARY_REVISION: &str = "b0ed958735e89b7695e7a7be138d3aba43750e1b";
+const LIBRARY_REVISION: &str = "f6adc2d28b28fc567660f64e948095582fd5c9bd";
 
 /// Where experiments live unless `CSM_DEMO_DATA` overrides it.
 pub fn default_data_dir() -> PathBuf {
