@@ -150,7 +150,6 @@ pub fn save(dir: &Path, request: SaveExperimentRequest) -> Result<ExperimentDocu
     Ok(document)
 }
 
-/// Load one experiment by name.
 /// Load one experiment by name, with version warnings.
 pub fn load(dir: &Path, name: &str) -> Result<ImportOutcome, String> {
     let path = path_for(dir, name)?;

@@ -98,5 +98,4 @@ The matcher is a Rust port of Andrea Censi's
 originally developed in [csm-rs](https://github.com/LotfiZ/csm-rs); earlier history
 is retained there.
 
-Distributed under **LGPL-3.0-only**. See [LICENSE](LICENSE) and the accompanying
-[GNU GPLv3 text](COPYING).
+Distributed under **LGPL-3.0-only**. See [LICENSE](LICENSE).
